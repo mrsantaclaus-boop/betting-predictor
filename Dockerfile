@@ -1,76 +1,61 @@
-# ── Stage 1: Clone MiroFish + apply patches + build frontend ────────────────
-FROM node:20-slim AS frontend-builder
+ # ── Stage 1: Clone MiroFish + apply patches + build frontend ────────────────
+  FROM node:20 AS frontend-builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+  RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 \
+      && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+  WORKDIR /app
 
-# Clone MiroFish
-RUN git clone --depth=1 https://github.com/666ghj/MiroFish.git mirofish
+  RUN git clone --depth=1 https://github.com/666ghj/MiroFish.git mirofish
 
-# Apply our frontend patch (BettingView)
-COPY patches/frontend/src/views/BettingView.vue mirofish/frontend/src/views/BettingView.vue
+  COPY patches/frontend/src/views/BettingView.vue mirofish/frontend/src/views/BettingView.vue
+  COPY patches/inject_router.py ./
+  RUN python3 inject_router.py
 
-# Inject Betting route into Vue Router
-COPY patches/inject_router.py ./
-RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/* \
-    && python3 inject_router.py
+  WORKDIR /app/mirofish/frontend
+  RUN npm install && npm run build
 
-# Build the frontend
-WORKDIR /app/mirofish
-RUN npm install --silent && npm run build
-# Built files → mirofish/dist/
+  # ── Stage 2: Python backend ──────────────────────────────────────────────────
+  FROM python:3.11-slim
 
-# ── Stage 2: Python backend ──────────────────────────────────────────────────
-FROM python:3.11-slim
+  WORKDIR /app
 
-WORKDIR /app
+  RUN apt-get update && apt-get install -y --no-install-recommends \
+      libxml2-dev libxslt-dev gcc git curl ca-certificates \
+      && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libxml2-dev libxslt-dev gcc git curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+  RUN pip install --no-cache-dir uv
 
-RUN pip install --no-cache-dir uv
+  RUN git clone --depth=1 https://github.com/666ghj/MiroFish.git mirofish
 
-# ── Clone MiroFish backend ───────────────────────────────────────────────────
-RUN git clone --depth=1 https://github.com/666ghj/MiroFish.git mirofish
+  COPY patches/backend/app/config.py                             mirofish/backend/app/config.py
+  COPY patches/backend/app/services/local_zep.py                 mirofish/backend/app/services/local_zep.py
+  COPY patches/backend/app/services/zep_entity_reader.py         mirofish/backend/app/services/zep_entity_reader.py
+  COPY patches/backend/app/services/zep_graph_memory_updater.py  mirofish/backend/app/services/zep_graph_memory_updater.py
+  COPY patches/backend/app/services/zep_tools.py                 mirofish/backend/app/services/zep_tools.py
+  COPY patches/backend/requirements.txt                          mirofish/backend/requirements.txt
 
-# ── Apply backend patches ────────────────────────────────────────────────────
-COPY patches/backend/app/config.py                             mirofish/backend/app/config.py
-COPY patches/backend/app/services/local_zep.py                 mirofish/backend/app/services/local_zep.py
-COPY patches/backend/app/services/zep_entity_reader.py         mirofish/backend/app/services/zep_entity_reader.py
-COPY patches/backend/app/services/zep_graph_memory_updater.py  mirofish/backend/app/services/zep_graph_memory_updater.py
-COPY patches/backend/app/services/zep_tools.py                 mirofish/backend/app/services/zep_tools.py
-COPY patches/backend/requirements.txt                          mirofish/backend/requirements.txt
+  COPY patches/backend/requirements.txt requirements.txt
+  RUN uv pip install --system --no-cache -r requirements.txt
+  RUN uv pip install --system --no-cache -r mirofish/backend/requirements.txt || true
 
-# ── Install Python dependencies ──────────────────────────────────────────────
-COPY patches/backend/requirements.txt requirements.txt
-RUN uv pip install --system --no-cache -r requirements.txt
+  COPY football/  ./football/
+  COPY data/      ./data/
+  COPY seed/      ./seed/
+  COPY predictor/ ./predictor/
+  COPY api_server.py ./
 
-# Also install MiroFish's own backend deps
-RUN uv pip install --system --no-cache -r mirofish/backend/requirements.txt || true
+  COPY --from=frontend-builder /app/mirofish/frontend/dist ./frontend_dist
 
-# ── Copy our application code ────────────────────────────────────────────────
-COPY football/  ./football/
-COPY data/      ./data/
-COPY seed/      ./seed/
-COPY predictor/ ./predictor/
-COPY api_server.py ./
+  RUN mkdir -p data
 
-# ── Copy built frontend ──────────────────────────────────────────────────────
-COPY --from=frontend-builder /app/mirofish/dist ./frontend_dist
+  ENV PYTHONUNBUFFERED=1
+  ENV PORT=8080
+  ENV FLASK_ENV=production
+  ENV PYTHONPATH=/app/mirofish/backend
 
-# ── Runtime setup ────────────────────────────────────────────────────────────
-RUN mkdir -p data
+  EXPOSE 8080
 
-ENV PYTHONUNBUFFERED=1
-ENV PORT=8080
-ENV FLASK_ENV=production
-ENV PYTHONPATH=/app/mirofish/backend
-
-EXPOSE 8080
-
-COPY docker-start.sh ./
-RUN chmod +x docker-start.sh
-CMD ["./docker-start.sh"]
+  COPY docker-start.sh ./
+  RUN chmod +x docker-start.sh
+  CMD ["./docker-start.sh"]
