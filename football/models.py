@@ -5,7 +5,7 @@ models.py — Pydantic data models for football match data.
 from __future__ import annotations
 from datetime import date, datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TeamForm(BaseModel):
@@ -101,6 +101,11 @@ class Standing(BaseModel):
     goal_difference: int
     points: int
     form: str = ""
+
+    @field_validator("form", mode="before")
+    @classmethod
+    def coerce_form(cls, v):
+        return v or ""
 
 
 class Fixture(BaseModel):
