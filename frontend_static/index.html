@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SAI Tipster</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0d1117;color:#c9d1d9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px}
+    a{color:inherit;text-decoration:none}
+    .dim{color:#6e7681}
+
+    /* Header */
+    .hdr{background:#161b22;border-bottom:1px solid #21262d;display:flex;align-items:center;justify-content:space-between;padding:0 20px;height:52px;position:sticky;top:0;z-index:100}
+    .hdr-brand{display:flex;align-items:center;gap:8px}
+    .hdr-name{font-size:1rem;font-weight:700;color:#e6edf3}
+    .hdr-sub{font-size:.72rem;color:#6e7681}
+    .nav{display:flex;gap:2px}
+    .nav-btn{background:transparent;border:none;border-bottom:2px solid transparent;color:#8b949e;cursor:pointer;padding:6px 14px;font-size:.85rem;transition:all .15s}
+    .nav-btn.active{color:#58a6ff;border-bottom-color:#58a6ff}
+    .nav-btn:hover{color:#e6edf3}
+
+    /* Main */
+    .main{padding:20px;max-width:960px}
+
+    /* Toolbar */
+    .toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px}
+    .chips{display:flex;gap:6px;flex-wrap:wrap}
+    .chip{padding:4px 12px;border-radius:16px;border:1px solid #30363d;background:#161b22;color:#8b949e;cursor:pointer;font-size:.8rem}
+    .chip.active{background:#1f6feb;border-color:#388bfd;color:#fff}
+
+    /* Buttons */
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:6px;border:1px solid #30363d;background:#21262d;color:#c9d1d9;cursor:pointer;font-size:.85rem;transition:all .15s}
+    .btn:hover{background:#30363d}
+    .btn.primary{background:#1f6feb;border-color:#388bfd;color:#fff}
+    .btn.primary:hover{background:#388bfd}
+    .btn.ghost{background:transparent;border-color:transparent;color:#8b949e}
+    .btn.ghost:hover{color:#e6edf3;background:#21262d}
+    .btn.lg{padding:10px 22px;font-size:.95rem}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+
+    /* Badges */
+    .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+    .badge.sa{background:#1a2f1a;color:#3fb950;border:1px solid #238636}
+    .badge.cl{background:#1a2340;color:#79c0ff;border:1px solid #1f6feb}
+    .badge.green{background:#1a2f1a;color:#3fb950}
+    .badge.yellow{background:#2a2510;color:#e3b341;display:flex;align-items:center;gap:4px}
+
+    /* State */
+    .state{padding:40px;text-align:center;color:#6e7681}
+    .state.loading{display:flex;align-items:center;justify-content:center;gap:10px;color:#8b949e}
+    .state.error{color:#f85149;background:#1a0808;border-radius:8px;padding:16px;text-align:left}
+
+    /* Spinner */
+    .spin{display:inline-block;width:18px;height:18px;border-radius:50%;border:2px solid #30363d;border-top-color:#58a6ff;animation:spin .7s linear infinite}
+    .spin.xs{width:12px;height:12px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* Fixture grid */
+    .fixture-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+    .fixture{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:14px 16px;cursor:pointer;transition:border-color .15s}
+    .fixture:hover{border-color:#388bfd}
+    .fixture.predicted{border-color:#238636}
+    .f-top{display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+    .f-date{color:#6e7681;font-size:.78rem;margin-left:auto}
+    .f-md{color:#6e7681;font-size:.75rem}
+    .f-teams{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+    .f-team{flex:1;font-size:.9rem;font-weight:500}
+    .f-vs{color:#484f58;font-size:.78rem}
+    .f-odds{display:flex;gap:5px;margin-bottom:8px}
+    .odd{padding:3px 8px;border-radius:5px;font-size:.82rem;font-weight:600}
+    .odd.h{background:#1a2f4a;color:#79c0ff}
+    .odd.d{background:#2a2a14;color:#e3b341}
+    .odd.a{background:#1a3a1a;color:#56d364}
+    .f-foot{display:flex;gap:6px;flex-wrap:wrap}
+
+    /* Panel overlay */
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;display:flex;justify-content:flex-end}
+    .panel{background:#0d1117;width:min(620px,100vw);height:100vh;overflow-y:auto;border-left:1px solid #21262d;padding:24px;position:relative}
+    .panel-close{position:sticky;top:0;float:right;background:transparent;border:none;color:#6e7681;font-size:1.1rem;cursor:pointer}
+    .panel-close:hover{color:#e6edf3}
+    .panel-hdr{margin-bottom:20px}
+    .panel-hdr h2{margin:6px 0 2px;font-size:1.1rem;color:#e6edf3}
+    .panel-date{font-size:.8rem;color:#6e7681}
+
+    /* Sections */
+    .section{margin-bottom:28px}
+    .sec-title{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:#8b949e;font-weight:400;margin:0 0 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #21262d;padding-bottom:8px}
+
+    /* Odds table */
+    .odds-table{border-radius:8px;overflow:hidden;border:1px solid #21262d}
+    .odds-row{display:flex;align-items:center;border-bottom:1px solid #21262d;font-size:.82rem}
+    .odds-row:last-child{border-bottom:none}
+    .odds-row.best{background:#161b22;font-weight:600}
+    .odds-book{width:90px;padding:8px 10px;color:#6e7681;font-size:.78rem;flex-shrink:0}
+    .odds-cell{flex:1;padding:8px 6px;text-align:center;font-size:.82rem;line-height:1.3}
+    .odds-cell.blue{color:#79c0ff}
+    .odds-cell.gold{color:#e3b341}
+    .odds-cell.green{color:#56d364}
+
+    /* Bars */
+    .bar-group{display:flex;flex-direction:column;gap:5px}
+    .bar-row{display:flex;align-items:center;gap:8px;font-size:.8rem}
+    .bar-lbl{width:44px;color:#8b949e;font-size:.78rem}
+    .bar-track{flex:1;height:7px;background:#21262d;border-radius:4px;overflow:hidden}
+    .bar-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,#1f6feb,#58a6ff);transition:width .5s}
+    .bar-fill.gold{background:linear-gradient(90deg,#5e4a00,#e3b341)}
+    .bar-pct{width:36px;text-align:right;color:#8b949e;font-size:.78rem}
+
+    /* Market grid */
+    .mkt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:12px}
+    .mkt-card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:12px}
+    .mkt-lbl{font-size:.72rem;color:#6e7681;text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
+    .pill-row{display:flex;gap:4px}
+    .pill{flex:1;text-align:center;padding:6px 4px;border-radius:5px;font-size:.78rem;line-height:1.3}
+    .pill.hot{background:#1a3a1a;color:#3fb950}
+    .pill.cool{background:#21262d;color:#6e7681}
+
+    /* Scoreline */
+    .scoreline{display:flex;align-items:center;gap:10px;margin-top:14px;padding:8px 12px;background:#161b22;border-radius:8px;font-size:.85rem}
+    .scoreline-val{font-size:1.1rem;font-weight:700;color:#58a6ff}
+    .confidence{padding:2px 8px;border-radius:8px;font-size:.72rem;text-transform:uppercase;font-weight:600}
+    .confidence.high{background:#1a3a1a;color:#3fb950}
+    .confidence.medium{background:#2a2510;color:#e3b341}
+    .confidence.low{background:#2a0e0e;color:#f85149}
+
+    /* CTA */
+    .cta{text-align:center;padding:20px 0}
+
+    /* News */
+    .news-list{display:flex;flex-direction:column;gap:8px}
+    .news-item{display:block;background:#161b22;border:1px solid #21262d;border-radius:8px;padding:12px;transition:border-color .15s}
+    .news-item:hover{border-color:#388bfd}
+    .news-item.injury{border-left:3px solid #da3633}
+    .news-src{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+    .news-date{color:#6e7681;font-size:.75rem;margin-left:auto}
+    .news-title{color:#c9d1d9;font-size:.88rem;line-height:1.4}
+    .news-summary{color:#6e7681;font-size:.8rem;margin-top:4px;line-height:1.4}
+    .src-badge{padding:1px 6px;border-radius:4px;font-size:.7rem;font-weight:600;background:#21262d;color:#8b949e}
+
+    /* Predictions list */
+    .pred-list{display:flex;flex-direction:column;gap:16px}
+    .pred-card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:18px 20px}
+    .pred-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+    .pred-hdr h3{margin:4px 0 2px;font-size:.95rem;color:#e6edf3}
+    .pred-date{font-size:.75rem;color:#6e7681}
+    .result-pill{display:inline-flex;align-items:center;gap:8px;padding:5px 12px;border-radius:20px;font-size:.85rem;margin-bottom:12px}
+    .result-pill.win{background:#1a2f4a;color:#79c0ff}
+    .result-pill.draw{background:#2a2510;color:#e3b341}
+    .pred-odds{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid #21262d;font-size:.82rem}
+
+    /* Standings */
+    .tbl{width:100%;border-collapse:collapse;font-size:.85rem;margin-top:16px}
+    .tbl th{padding:7px 8px;text-align:right;color:#6e7681;font-weight:400;border-bottom:1px solid #21262d;font-size:.75rem;text-transform:uppercase}
+    .tbl th:nth-child(-n+2){text-align:left}
+    .tbl td{padding:8px;text-align:right;border-bottom:1px solid #0d1117}
+    .tbl td:nth-child(-n+2){text-align:left}
+    .tbl tr:hover td{background:#161b22}
+    .tbl td.pts{font-weight:700;color:#e6edf3}
+    .tbl td.pos{color:#3fb950}
+    .tbl td.neg{color:#f85149}
+    .form-dots{display:flex;gap:3px;justify-content:flex-end}
+    .dot{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:700}
+    .dot.W{background:#238636;color:#fff}
+    .dot.D{background:#6e7681;color:#fff}
+    .dot.L{background:#da3633;color:#fff}
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Header -->
+  <header class="hdr">
+    <div class="hdr-brand">
+      <span>⚽</span>
+      <span class="hdr-name">SAI Tipster</span>
+      <span class="hdr-sub">powered by MiroFish AI</span>
+    </div>
+    <nav class="nav">
+      <button v-for="t in tabs" :key="t.key"
+        :class="['nav-btn', {active: tab===t.key}]"
+        @click="tab=t.key">{{ t.label }}</button>
+    </nav>
+  </header>
+
+  <!-- FIXTURES -->
+  <main v-if="tab==='fixtures'" class="main">
+    <div class="toolbar">
+      <div class="chips">
+        <button v-for="c in comps" :key="c.code"
+          :class="['chip', {active: compFilter===c.code}]"
+          @click="compFilter=c.code">{{ c.label }}</button>
+      </div>
+      <button class="btn ghost" @click="loadFixtures">↺ Refresh</button>
+    </div>
+
+    <div v-if="loadingFixtures" class="state loading"><div class="spin"></div>Loading fixtures…</div>
+    <div v-else-if="fixtureError" class="state error">{{ fixtureError }}</div>
+    <div v-else-if="!filteredFixtures.length" class="state">No upcoming fixtures.</div>
+
+    <div v-else class="fixture-grid">
+      <div v-for="f in filteredFixtures" :key="f.fixture_id"
+        :class="['fixture', {predicted: hasPred(f.fixture_id)}]"
+        @click="openFixture(f)">
+        <div class="f-top">
+          <span :class="['badge', f.competition_code.toLowerCase()]">
+            {{ f.competition_code==='SA' ? '🇮🇹 Serie A' : '⭐ UCL' }}
+          </span>
+          <span class="f-date">{{ fmt(f.match_date) }}</span>
+          <span v-if="f.matchday" class="f-md">MD {{ f.matchday }}</span>
+          <span v-else-if="f.stage" class="f-md">{{ f.stage }}</span>
+        </div>
+        <div class="f-teams">
+          <span class="f-team">{{ f.home_team }}</span>
+          <span class="f-vs">vs</span>
+          <span class="f-team">{{ f.away_team }}</span>
+        </div>
+        <div v-if="quickOdds[f.fixture_id]" class="f-odds">
+          <span class="odd h">{{ quickOdds[f.fixture_id].home }}</span>
+          <span class="odd d">{{ quickOdds[f.fixture_id].draw }}</span>
+          <span class="odd a">{{ quickOdds[f.fixture_id].away }}</span>
+        </div>
+        <div class="f-foot">
+          <span v-if="hasPred(f.fixture_id)" class="badge green">✓ Predicted</span>
+          <span v-if="running.has(f.fixture_id)" class="badge yellow">
+            <span class="spin xs"></span> Running…
+          </span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- PREDICTIONS -->
+  <main v-if="tab==='predictions'" class="main">
+    <div v-if="!predictions.length" class="state">No predictions yet. Open a fixture and click "Run AI Prediction".</div>
+    <div v-else class="pred-list">
+      <div v-for="p in predictions" :key="p.fixture_id" class="pred-card">
+        <div class="pred-hdr">
+          <div>
+            <span :class="['badge', compClass(p.competition)]">{{ p.competition }}</span>
+            <h3>{{ p.match_label }}</h3>
+            <span class="pred-date">{{ fmt(p.created_at) }}</span>
+          </div>
+          <span :class="['confidence', p.confidence]">{{ p.confidence }}</span>
+        </div>
+        <div :class="['result-pill', p.home_win_pct>=p.away_win_pct&&p.home_win_pct>=p.draw_pct ? 'win' : p.draw_pct>=p.away_win_pct ? 'draw' : 'win']">
+          <span>{{ resultLabel(p) }}</span>
+          <strong>{{ resultPct(p) }}%</strong>
+        </div>
+        <div class="mkt-grid">
+          <div v-for="m in mkts(p)" :key="m.label" class="mkt-card">
+            <div class="mkt-lbl">{{ m.label }}</div>
+            <div class="pill-row">
+              <span :class="['pill', m.a>=50?'hot':'cool']">{{ m.aLbl }}<br><strong>{{ m.a }}%</strong></span>
+              <span :class="['pill', m.b>m.a?'hot':'cool']">{{ m.bLbl }}<br><strong>{{ m.b }}%</strong></span>
+            </div>
+          </div>
+        </div>
+        <div v-if="p.most_likely_scoreline" class="scoreline">
+          <span class="dim">Scoreline:</span>
+          <span class="scoreline-val">{{ p.most_likely_scoreline }}</span>
+        </div>
+        <div v-if="p.live_odds&&p.live_odds.consensus" class="pred-odds">
+          <span class="dim">Live odds:</span>
+          <span class="odd h">{{ p.live_odds.consensus.home }}</span>
+          <span class="odd d">{{ p.live_odds.consensus.draw }}</span>
+          <span class="odd a">{{ p.live_odds.consensus.away }}</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- STANDINGS -->
+  <main v-if="tab==='standings'" class="main">
+    <div class="chips" style="margin-bottom:16px">
+      <button v-for="c in comps.filter(x=>x.code!=='ALL')" :key="c.code"
+        :class="['chip', {active: standComp===c.code}]"
+        @click="loadStandings(c.code)">{{ c.label }}</button>
+    </div>
+    <div v-if="loadingStand" class="state loading"><div class="spin"></div>Loading…</div>
+    <table v-else-if="standings.length" class="tbl">
+      <thead>
+        <tr><th>#</th><th>Club</th><th>P</th><th>W</th><th>D</th><th>L</th>
+            <th>GF</th><th>GA</th><th>GD</th><th>Pts</th><th>Form</th></tr>
+      </thead>
+      <tbody>
+        <tr v-for="r in standings" :key="r.position">
+          <td>{{ r.position }}</td><td>{{ r.team_name }}</td>
+          <td>{{ r.played }}</td><td>{{ r.won }}</td><td>{{ r.drawn }}</td><td>{{ r.lost }}</td>
+          <td>{{ r.goals_for }}</td><td>{{ r.goals_against }}</td>
+          <td :class="r.goal_difference>0?'pos':r.goal_difference<0?'neg':''">
+            {{ r.goal_difference>0?'+':'' }}{{ r.goal_difference }}
+          </td>
+          <td class="pts">{{ r.points }}</td>
+          <td><div class="form-dots">
+            <span v-for="(ch,i) in (r.form||'').split(',').filter(Boolean)" :key="i"
+              :class="['dot', ch.trim()]">{{ ch.trim() }}</span>
+          </div></td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+
+  <!-- FIXTURE PANEL -->
+  <div v-if="activeFixture" class="overlay" @click.self="activeFixture=null">
+    <aside class="panel">
+      <button class="panel-close" @click="activeFixture=null">✕</button>
+      <div class="panel-hdr">
+        <span :class="['badge', activeFixture.competition_code.toLowerCase()]">{{ activeFixture.competition }}</span>
+        <h2>{{ activeFixture.home_team }} <span class="dim">vs</span> {{ activeFixture.away_team }}</h2>
+        <p class="panel-date">{{ fmt(activeFixture.match_date) }}</p>
+      </div>
+
+      <!-- Live Odds -->
+      <div class="section">
+        <div class="sec-title">📈 Live Odds
+          <span v-if="loadingOdds" class="spin xs"></span>
+        </div>
+        <div v-if="activeOdds&&!activeOdds.error" class="odds-table">
+          <div class="odds-row best">
+            <span class="odds-book">Best odds</span>
+            <span class="odds-cell blue">H<br><strong>{{ activeOdds.consensus.home||'—' }}</strong></span>
+            <span class="odds-cell gold">D<br><strong>{{ activeOdds.consensus.draw||'—' }}</strong></span>
+            <span class="odds-cell green">A<br><strong>{{ activeOdds.consensus.away||'—' }}</strong></span>
+            <span class="odds-cell">O2.5<br><strong>{{ activeOdds.consensus.over_2_5||'—' }}</strong></span>
+            <span class="odds-cell">U2.5<br><strong>{{ activeOdds.consensus.under_2_5||'—' }}</strong></span>
+          </div>
+          <div v-for="(bo,book) in activeOdds.bookmakers" :key="book" class="odds-row">
+            <span class="odds-book">{{ book }}</span>
+            <span class="odds-cell">{{ bo.home||'—' }}</span>
+            <span class="odds-cell">{{ bo.draw||'—' }}</span>
+            <span class="odds-cell">{{ bo.away||'—' }}</span>
+            <span class="odds-cell">{{ bo.over_2_5||'—' }}</span>
+            <span class="odds-cell">{{ bo.under_2_5||'—' }}</span>
+          </div>
+        </div>
+        <div v-else-if="!loadingOdds" class="dim" style="font-size:.85rem;padding:8px 0">
+          {{ activeOdds&&activeOdds.error ? activeOdds.error : 'No odds data. Add ODDS_API_KEY in Render environment variables.' }}
+        </div>
+      </div>
+
+      <!-- AI Prediction -->
+      <div class="section">
+        <div class="sec-title">🤖 AI Prediction</div>
+        <div v-if="activePred">
+          <div class="bar-group" style="margin-bottom:16px">
+            <div class="bar-row">
+              <span class="bar-lbl">Home</span>
+              <div class="bar-track"><div class="bar-fill" :style="{width:activePred.home_win_pct+'%'}"></div></div>
+              <span class="bar-pct">{{ activePred.home_win_pct }}%</span>
+            </div>
+            <div class="bar-row">
+              <span class="bar-lbl">Draw</span>
+              <div class="bar-track"><div class="bar-fill gold" :style="{width:activePred.draw_pct+'%'}"></div></div>
+              <span class="bar-pct">{{ activePred.draw_pct }}%</span>
+            </div>
+            <div class="bar-row">
+              <span class="bar-lbl">Away</span>
+              <div class="bar-track"><div class="bar-fill" :style="{width:activePred.away_win_pct+'%'}"></div></div>
+              <span class="bar-pct">{{ activePred.away_win_pct }}%</span>
+            </div>
+          </div>
+          <div class="mkt-grid">
+            <div v-for="m in mkts(activePred)" :key="m.label" class="mkt-card">
+              <div class="mkt-lbl">{{ m.label }}</div>
+              <div class="pill-row">
+                <span :class="['pill', m.a>=50?'hot':'cool']">{{ m.aLbl }}<br><strong>{{ m.a }}%</strong></span>
+                <span :class="['pill', m.b>m.a?'hot':'cool']">{{ m.bLbl }}<br><strong>{{ m.b }}%</strong></span>
+              </div>
+            </div>
+          </div>
+          <div v-if="activePred.most_likely_scoreline" class="scoreline">
+            <span class="dim">Scoreline:</span>
+            <span class="scoreline-val">{{ activePred.most_likely_scoreline }}</span>
+            <span :class="['confidence', activePred.confidence]">{{ activePred.confidence }}</span>
+          </div>
+        </div>
+        <div v-else class="cta">
+          <p class="dim" style="margin-bottom:14px">No prediction yet for this match.</p>
+          <button class="btn primary lg" :disabled="running.has(activeFixture.fixture_id)" @click="runPred(activeFixture)">
+            <span v-if="running.has(activeFixture.fixture_id)"><span class="spin xs"></span> Simulating… (~3 min)</span>
+            <span v-else>🤖 Run AI Prediction</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- News -->
+      <div class="section">
+        <div class="sec-title">📰 News & Injuries
+          <span v-if="loadingNews" class="spin xs"></span>
+        </div>
+        <div v-if="activeNews.length" class="news-list">
+          <a v-for="(a,i) in activeNews" :key="i" :href="a.url" target="_blank"
+            :class="['news-item', {injury: a.is_injury_report}]">
+            <div class="news-src">
+              <span class="src-badge">{{ a.source }}</span>
+              <span class="news-date">{{ fmtShort(a.published_at) }}</span>
+            </div>
+            <div class="news-title">{{ a.title }}</div>
+            <div v-if="a.summary" class="news-summary">{{ a.summary }}</div>
+          </a>
+        </div>
+        <div v-else-if="!loadingNews" class="dim" style="font-size:.85rem;padding:8px 0">No news found.</div>
+      </div>
+    </aside>
+  </div>
+
+</div>
+
+<script>
+const { createApp, ref, computed, onMounted, watch } = Vue
+
+const API = '/api'
+
+createApp({
+  setup() {
+    const tab = ref('fixtures')
+    const tabs = [
+      {key:'fixtures', label:'📅 Fixtures'},
+      {key:'predictions', label:'🤖 Predictions'},
+      {key:'standings', label:'📊 Standings'},
+    ]
+    const comps = [
+      {code:'ALL', label:'All'},
+      {code:'SA',  label:'🇮🇹 Serie A'},
+      {code:'CL',  label:'⭐ UCL'},
+    ]
+    const compFilter = ref('ALL')
+    const fixtures = ref([])
+    const loadingFixtures = ref(false)
+    const fixtureError = ref(null)
+    const filteredFixtures = computed(() =>
+      compFilter.value === 'ALL' ? fixtures.value
+        : fixtures.value.filter(f => f.competition_code === compFilter.value)
+    )
+    const predictions = ref([])
+    const predMap = ref({})
+    const running = ref(new Set())
+    const activeFixture = ref(null)
+    const activeOdds = ref(null)
+    const loadingOdds = ref(false)
+    const activeNews = ref([])
+    const loadingNews = ref(false)
+    const quickOdds = ref({})
+    const standings = ref([])
+    const loadingStand = ref(false)
+    const standComp = ref('SA')
+    const activePred = computed(() =>
+      activeFixture.value ? predMap.value[activeFixture.value.fixture_id] ?? null : null
+    )
+
+    async function loadFixtures() {
+      loadingFixtures.value = true
+      fixtureError.value = null
+      try {
+        const r = await fetch(`${API}/fixtures`)
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        const d = await r.json()
+        if (d.error) throw new Error(d.error)
+        fixtures.value = d
+        loadAllOdds()
+      } catch(e) {
+        fixtureError.value = `Could not load fixtures: ${e.message}`
+      } finally { loadingFixtures.value = false }
+    }
+
+    async function loadAllOdds() {
+      for (const code of ['SA','CL']) {
+        try {
+          const r = await fetch(`${API}/odds/${code}`)
+          if (!r.ok) continue
+          const data = await r.json()
+          if (!Array.isArray(data)) continue
+          for (const ev of data) {
+            const fix = fixtures.value.find(f =>
+              match(f.home_team, ev.home_team) && match(f.away_team, ev.away_team)
+            )
+            if (fix && ev.consensus) quickOdds.value[fix.fixture_id] = ev.consensus
+          }
+        } catch {}
+      }
+    }
+
+    async function loadPredictions() {
+      try {
+        const r = await fetch(`${API}/predictions`)
+        if (!r.ok) return
+        const d = await r.json()
+        predictions.value = d
+        predMap.value = {}
+        d.forEach(p => { predMap.value[p.fixture_id] = p })
+      } catch {}
+    }
+
+    async function loadStandings(code) {
+      standComp.value = code
+      loadingStand.value = true
+      standings.value = []
+      try {
+        const r = await fetch(`${API}/standings/${code}`)
+        if (r.ok) standings.value = await r.json()
+      } catch {} finally { loadingStand.value = false }
+    }
+
+    async function openFixture(f) {
+      activeFixture.value = f
+      activeOdds.value = null
+      activeNews.value = []
+      loadingOdds.value = true
+      loadingNews.value = true
+      try {
+        const r = await fetch(`${API}/odds/fixture/${f.fixture_id}`)
+        const d = await r.json()
+        activeOdds.value = d.error ? null : d
+      } catch {} finally { loadingOdds.value = false }
+      try {
+        const r = await fetch(`${API}/news/${encodeURIComponent(f.home_team)}/${encodeURIComponent(f.away_team)}?competition=${encodeURIComponent(f.competition)}`)
+        if (r.ok) activeNews.value = await r.json()
+      } catch {} finally { loadingNews.value = false }
+    }
+
+    async function runPred(f) {
+      const id = f.fixture_id
+      running.value = new Set([...running.value, id])
+      try {
+        const r = await fetch(`${API}/predict`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({fixture_id: id})
+        })
+        if (!r.ok) { const e=await r.json(); throw new Error(e.error||`HTTP ${r.status}`) }
+        const p = await r.json()
+        p.fixture_id = id
+        p.match_label = `${f.home_team} vs ${f.away_team}`
+        p.competition = f.competition
+        p.created_at = new Date().toISOString()
+        predMap.value[id] = p
+        predictions.value = [p, ...predictions.value.filter(x=>x.fixture_id!==id)]
+        tab.value = 'predictions'
+      } catch(e) { alert(`Prediction failed: ${e.message}`) }
+      finally { const s=new Set(running.value); s.delete(id); running.value=s }
+    }
+
+    function hasPred(id) { return !!predMap.value[id] }
+    function match(a,b) {
+      const kw = s => s.toLowerCase().replace(/[^a-z0-9]/g,' ').split(' ').filter(w=>w.length>2)
+      const ka=new Set(kw(a)), kb=new Set(kw(b))
+      return [...ka].some(w=>kb.has(w))
+    }
+    function fmt(iso) {
+      if (!iso) return ''
+      return new Date(iso).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
+    }
+    function fmtShort(iso) {
+      if (!iso) return ''
+      return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short'})
+    }
+    function compClass(c) { return c&&c.toLowerCase().includes('serie')?'sa':'cl' }
+    function mkts(p) {
+      return [
+        {label:'Goals O/U 2.5', aLbl:'Over', bLbl:'Under', a:p.over_2_5_pct, b:p.under_2_5_pct},
+        {label:'Goals O/U 3.5', aLbl:'Over', bLbl:'Under', a:p.over_3_5_pct, b:p.under_3_5_pct},
+        {label:'BTTS',           aLbl:'Yes',  bLbl:'No',    a:p.btts_yes_pct, b:p.btts_no_pct},
+        {label:'Corners O/U 9.5',aLbl:'Over', bLbl:'Under', a:p.over_9_5_corners_pct, b:p.under_9_5_corners_pct},
+        {label:'Cards O/U 3.5',  aLbl:'Over', bLbl:'Under', a:p.over_3_5_cards_pct, b:p.under_3_5_cards_pct},
+        {label:'Red Card',       aLbl:'Yes',  bLbl:'No',    a:p.red_card_pct, b:Math.round((100-p.red_card_pct)*10)/10},
+      ]
+    }
+    function resultLabel(p) {
+      const mx=Math.max(p.home_win_pct,p.draw_pct,p.away_win_pct)
+      return mx===p.home_win_pct?'Home Win':mx===p.draw_pct?'Draw':'Away Win'
+    }
+    function resultPct(p) { return Math.max(p.home_win_pct,p.draw_pct,p.away_win_pct) }
+
+    onMounted(() => { loadFixtures(); loadPredictions() })
+    watch(tab, t => { if(t==='standings'&&!standings.value.length) loadStandings('SA') })
+
+    return {
+      tab, tabs, comps, compFilter, fixtures, loadingFixtures, fixtureError,
+      filteredFixtures, predictions, predMap, running, activeFixture, activeOdds,
+      loadingOdds, activeNews, loadingNews, quickOdds, standings, loadingStand,
+      standComp, activePred, loadFixtures, loadStandings, openFixture, runPred,
+      hasPred, fmt, fmtShort, compClass, mkts, resultLabel, resultPct
+    }
+  }
+}).mount('#app')
+</script>
+</body>
+</html>
