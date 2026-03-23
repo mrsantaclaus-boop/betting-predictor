@@ -1,24 +1,17 @@
 """
 predictor/mirofish_client.py
 
-HTTP client that drives the full MiroFish simulation pipeline for a match.
+Direct LLM prediction client using Groq (OpenAI-compatible API).
+Replaces the MiroFish HTTP pipeline — same interface, no port 5001 needed.
 
-Pipeline:
-  1. POST /simulation/create   — create simulation record
-  2. POST /simulation/prepare  — async: build knowledge graph + agent profiles
-  3. (poll prepare/status)
-  4. POST /simulation/start    — run multi-agent simulation
-  5. (poll run-status)
-  6. POST /report/generate     — generate prediction report
-  7. (poll generate/status)
-  8. GET  /report/{id}         — retrieve final markdown report
+The seed document + prediction prompt are sent as a single chat completion
+request to the configured LLM, which returns a structured markdown report
+containing the BETTING PREDICTIONS JSON block.
 """
 
 from __future__ import annotations
 
-import io
 import os
-import time
 import logging
 from typing import Optional
 
@@ -29,9 +22,16 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_BASE = os.getenv("MIROFISH_API_URL", "http://localhost:5001")
-_POLL_INTERVAL = 5   # seconds between status polls
-_MAX_WAIT = 600      # 10 minutes max per stage
+_LLM_API_KEY   = os.getenv("LLM_API_KEY", "")
+_LLM_BASE_URL  = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
+_LLM_MODEL     = os.getenv("LLM_MODEL_NAME", "llama-3.3-70b-versatile")
+
+_SYSTEM_PROMPT = (
+    "You are an elite football betting analyst with deep knowledge of Serie A "
+    "and the UEFA Champions League. You analyse statistical data and produce "
+    "structured betting predictions with probability percentages. "
+    "Always output a 'BETTING PREDICTIONS' section containing a valid JSON block."
+)
 
 
 class SimulationError(Exception):
@@ -39,14 +39,12 @@ class SimulationError(Exception):
 
 
 class MiroFishClient:
-    """Controls MiroFish via its REST API."""
+    """LLM-based prediction client (drop-in replacement for MiroFish HTTP pipeline)."""
 
-    def __init__(self, base_url: str = _DEFAULT_BASE):
-        self.base = base_url.rstrip("/")
-        self.session = requests.Session()
-        self.session.headers.update({"Accept": "application/json"})
-
-    # ── Full pipeline ─────────────────────────────────────────────────────────
+    def __init__(self, base_url: str = _LLM_BASE_URL):
+        self.base_url = base_url.rstrip("/")
+        self.api_key  = _LLM_API_KEY
+        self.model    = _LLM_MODEL
 
     def run_match_prediction(
         self,
@@ -56,211 +54,70 @@ class MiroFishClient:
         simulation_rounds: int = 10,
     ) -> dict:
         """
-        Execute the complete simulation → report pipeline.
+        Call the LLM with full match context and return a report dict.
 
-        Returns a dict with:
-          - simulation_id
-          - report_id
-          - report_markdown  (full text)
-          - status  ("success" | "error")
-          - error   (if status == "error")
+        Returns:
+          {"status": "success", "report_markdown": "...", "simulation_id": None, "report_id": None}
+          {"status": "error",   "error": "..."}
         """
+        if not self.api_key:
+            return {"status": "error", "error": "LLM_API_KEY not configured"}
+
+        user_message = (
+            f"{seed_text}\n\n"
+            f"---\n\n"
+            f"## PREDICTION TASK\n\n"
+            f"{prediction_prompt}\n\n"
+            f"Analyse all the statistics above carefully. Consider home advantage, "
+            f"recent form, head-to-head record, and attacking/defensive metrics. "
+            f"Produce a detailed analytical report concluding with a "
+            f"'BETTING PREDICTIONS' section that contains the JSON block exactly "
+            f"as specified in the simulation instructions."
+        )
+
         try:
-            # 1. Create
-            logger.info("[MiroFish] Creating simulation: %s", match_label)
-            sim_id = self._create_simulation(match_label)
-
-            # 2. Upload seed material
-            logger.info("[MiroFish] Uploading seed document...")
-            self._upload_seed(sim_id, seed_text, match_label)
-
-            # 3. Prepare (async)
-            logger.info("[MiroFish] Preparing simulation (graph + profiles)...")
-            task_id = self._start_prepare(sim_id, prediction_prompt)
-            self._wait_for_task(
-                task_id,
-                poll_url=f"/simulation/prepare/status",
-                task_key="task_id",
-                label="Preparation",
+            logger.info("[LLM] Requesting prediction for: %s", match_label)
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "user",   "content": user_message},
+                    ],
+                    "temperature": 0.3,
+                    "max_tokens": 2048,
+                },
+                timeout=120,
             )
-
-            # 4. Start simulation
-            logger.info("[MiroFish] Starting simulation (%d rounds)...", simulation_rounds)
-            self._start_simulation(sim_id, simulation_rounds)
-            self._wait_for_simulation(sim_id)
-
-            # 5. Generate report
-            logger.info("[MiroFish] Generating prediction report...")
-            task_id = self._start_report(sim_id)
-            self._wait_for_task(
-                task_id,
-                poll_url="/report/generate/status",
-                task_key="task_id",
-                label="Report generation",
-            )
-
-            # 6. Fetch report
-            report_id = self._get_report_id(sim_id)
-            report_md = self._fetch_report(report_id)
-
-            logger.info("[MiroFish] Pipeline complete.")
+            response.raise_for_status()
+            data = response.json()
+            report_md = data["choices"][0]["message"]["content"]
+            logger.info("[LLM] Prediction complete (%d chars)", len(report_md))
             return {
                 "status": "success",
-                "simulation_id": sim_id,
-                "report_id": report_id,
+                "simulation_id": None,
+                "report_id": None,
                 "report_markdown": report_md,
             }
 
-        except SimulationError as e:
-            logger.error("[MiroFish] Pipeline failed: %s", e)
-            return {"status": "error", "error": str(e)}
-
-    # ── Step implementations ──────────────────────────────────────────────────
-
-    def _create_simulation(self, name: str) -> str:
-        resp = self._post("/simulation/create", json={"name": name})
-        sim_id = (
-            resp.get("data", {}).get("simulation_id")
-            or resp.get("data", {}).get("id")
-            or resp.get("simulation_id")
-        )
-        if not sim_id:
-            raise SimulationError(f"create returned no ID: {resp}")
-        return str(sim_id)
-
-    def _upload_seed(self, sim_id: str, text: str, filename: str) -> None:
-        """Upload seed document as a text file."""
-        fname = filename.replace(" ", "_")[:50] + ".txt"
-        files = {"file": (fname, io.BytesIO(text.encode("utf-8")), "text/plain")}
-        data = {"simulation_id": sim_id}
-        resp = self._post_multipart("/simulation/upload", data=data, files=files)
-        if not resp.get("success"):
-            # Some versions attach the file to create directly — not fatal
-            logger.warning("Upload endpoint returned: %s", resp)
-
-    def _start_prepare(self, sim_id: str, prediction_prompt: str) -> str:
-        resp = self._post("/simulation/prepare", json={
-            "simulation_id": sim_id,
-            "prediction_requirement": prediction_prompt,
-        })
-        task_id = (
-            resp.get("data", {}).get("task_id")
-            or resp.get("task_id")
-        )
-        if not task_id:
-            raise SimulationError(f"prepare returned no task_id: {resp}")
-        return str(task_id)
-
-    def _wait_for_task(self, task_id: str, poll_url: str,
-                        task_key: str, label: str) -> None:
-        deadline = time.time() + _MAX_WAIT
-        while time.time() < deadline:
-            resp = self._post(poll_url, json={task_key: task_id})
-            status = (
-                resp.get("data", {}).get("status")
-                or resp.get("status", "")
-            )
-            logger.info("[MiroFish] %s status: %s", label, status)
-            if status in ("completed", "done", "finished", "success"):
-                return
-            if status in ("failed", "error"):
-                raise SimulationError(f"{label} failed: {resp}")
-            time.sleep(_POLL_INTERVAL)
-        raise SimulationError(f"{label} timed out after {_MAX_WAIT}s")
-
-    def _start_simulation(self, sim_id: str, rounds: int) -> None:
-        resp = self._post("/simulation/start", json={
-            "simulation_id": sim_id,
-            "max_rounds": rounds,
-        })
-        if not resp.get("success"):
-            raise SimulationError(f"start returned failure: {resp}")
-
-    def _wait_for_simulation(self, sim_id: str) -> None:
-        deadline = time.time() + _MAX_WAIT
-        while time.time() < deadline:
-            resp = self._get_req(f"/simulation/{sim_id}/run-status")
-            status = (
-                resp.get("data", {}).get("status")
-                or resp.get("status", "")
-            )
-            logger.info("[MiroFish] Simulation status: %s", status)
-            if status in ("completed", "finished", "stopped", "done"):
-                return
-            if status in ("failed", "error"):
-                raise SimulationError(f"Simulation failed: {resp}")
-            time.sleep(_POLL_INTERVAL)
-        raise SimulationError(f"Simulation timed out after {_MAX_WAIT}s")
-
-    def _start_report(self, sim_id: str) -> str:
-        resp = self._post("/report/generate", json={"simulation_id": sim_id})
-        task_id = (
-            resp.get("data", {}).get("task_id")
-            or resp.get("task_id")
-        )
-        if not task_id:
-            raise SimulationError(f"report/generate returned no task_id: {resp}")
-        return str(task_id)
-
-    def _get_report_id(self, sim_id: str) -> str:
-        resp = self._get_req(f"/report/by-simulation/{sim_id}")
-        report_id = (
-            resp.get("data", {}).get("id")
-            or resp.get("data", {}).get("report_id")
-            or resp.get("report_id")
-        )
-        if not report_id:
-            raise SimulationError(f"Could not retrieve report ID for sim {sim_id}: {resp}")
-        return str(report_id)
-
-    def _fetch_report(self, report_id: str) -> str:
-        resp = self._get_req(f"/report/{report_id}")
-        content = (
-            resp.get("data", {}).get("content")
-            or resp.get("data", {}).get("markdown")
-            or resp.get("content", "")
-        )
-        if not content:
-            raise SimulationError(f"Empty report returned for {report_id}")
-        return content
-
-    # ── Utility ───────────────────────────────────────────────────────────────
-
-    def _post(self, path: str, json: Optional[dict] = None) -> dict:
-        try:
-            resp = self.session.post(f"{self.base}{path}", json=json, timeout=30)
-            resp.raise_for_status()
-            return resp.json()
         except requests.HTTPError as e:
-            raise SimulationError(f"POST {path} → HTTP {e.response.status_code}: {e.response.text[:200]}")
+            err = f"LLM API error {e.response.status_code}: {e.response.text[:200]}"
+            logger.error(err)
+            return {"status": "error", "error": err}
         except requests.RequestException as e:
-            raise SimulationError(f"POST {path} failed: {e}")
+            err = f"LLM request failed: {e}"
+            logger.error(err)
+            return {"status": "error", "error": err}
+        except (KeyError, IndexError) as e:
+            err = f"Unexpected LLM response format: {e}"
+            logger.error(err)
+            return {"status": "error", "error": err}
 
-    def _post_multipart(self, path: str, data: dict, files: dict) -> dict:
-        try:
-            resp = self.session.post(
-                f"{self.base}{path}", data=data, files=files, timeout=30
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            return {"success": False, "error": str(e)}
-
-    def _get_req(self, path: str, params: Optional[dict] = None) -> dict:
-        try:
-            resp = self.session.get(f"{self.base}{path}", params=params, timeout=30)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.HTTPError as e:
-            raise SimulationError(f"GET {path} → HTTP {e.response.status_code}")
-        except requests.RequestException as e:
-            raise SimulationError(f"GET {path} failed: {e}")
-
-    # ── Convenience: list existing simulations ────────────────────────────────
-
+    # Keep stub so any code that calls list_simulations() doesn't break
     def list_simulations(self) -> list[dict]:
-        try:
-            resp = self._get_req("/simulation/list")
-            return resp.get("data", [])
-        except SimulationError:
-            return []
+        return []
