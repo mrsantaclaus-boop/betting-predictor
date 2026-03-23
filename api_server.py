@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 
-app = Flask(__name__, static_folder="frontend_dist", static_url_path="")
+app = Flask(__name__, static_folder="frontend_static", static_url_path="")
 CORS(app, origins="*")
 
 _orchestrator: BettingOrchestrator | None = None
@@ -356,10 +356,10 @@ def clear_cache():
 @app.route("/<path:path>")
 def serve_frontend(path: str):
     """Serve the built Vue.js app for all non-API routes."""
-    dist = Path("frontend_dist")
-    if dist.exists():
-        if path and (dist / path).exists():
-            return send_from_directory("frontend_dist", path)
+    static = Path("frontend_static")
+  if path and (static / path).exists():
+      return send_from_directory("frontend_static", path)
+  return send_from_directory("frontend_static", "index.html")
         return send_from_directory("frontend_dist", "index.html")
     return jsonify({"message": "Frontend not built yet. Run: npm run build in mirofish/"}), 200
 
