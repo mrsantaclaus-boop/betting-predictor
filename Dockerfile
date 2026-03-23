@@ -42,6 +42,4 @@
 
   EXPOSE 8080
 
-  COPY docker-start.sh ./
-  RUN chmod +x docker-start.sh
-  CMD ["./docker-start.sh"]
+CMD ["python", "api_server.py"]
