@@ -165,6 +165,15 @@
     .dot.W{background:#238636;color:#fff}
     .dot.D{background:#6e7681;color:#fff}
     .dot.L{background:#da3633;color:#fff}
+
+    /* Value badge */
+    .badge.value{background:#2a1f00;color:#e3b341;border:1px solid #5e4a00}
+
+    /* Edge table */
+    .tbl td.pos{color:#3fb950}
+    .tbl td.neg{color:#f85149}
+    .score-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:8px;background:#161b22;border:1px solid #30363d;font-size:.85rem;font-weight:700;color:#e6edf3}
+    .hit-badge{padding:1px 7px;border-radius:8px;font-size:.68rem;font-weight:600;background:#1a2f1a;color:#3fb950;border:1px solid #238636}
   </style>
 </head>
 <body>
@@ -223,6 +232,7 @@
         </div>
         <div class="f-foot">
           <span v-if="hasPred(f.fixture_id)" class="badge green">✓ Predicted</span>
+          <span v-if="hasValueMarket(f.fixture_id)" class="badge value">⚡ VALUE</span>
           <span v-if="running.has(f.fixture_id)" class="badge yellow">
             <span class="spin xs"></span> Running…
           </span>
@@ -233,6 +243,15 @@
 
   <!-- PREDICTIONS -->
   <main v-if="tab==='predictions'" class="main">
+    <div class="toolbar" style="margin-bottom:16px">
+      <span class="dim" style="font-size:.82rem">
+        {{ resolvedCount }} resolved · {{ unresolvedCount }} pending
+      </span>
+      <button class="btn" :disabled="syncing" @click="syncResults">
+        <span v-if="syncing"><span class="spin xs"></span> Syncing…</span>
+        <span v-else>↺ Sync Results</span>
+      </button>
+    </div>
     <div v-if="!predictions.length" class="state">No predictions yet. Open a fixture and click "Run AI Prediction".</div>
     <div v-else class="pred-list">
       <div v-for="p in predictions" :key="p.fixture_id" class="pred-card">
@@ -243,6 +262,11 @@
             <span class="pred-date">{{ fmt(p.created_at) }}</span>
           </div>
           <span :class="['confidence', p.confidence]">{{ p.confidence }}</span>
+        </div>
+        <div v-if="p.actual_score" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <span class="score-badge">{{ p.actual_score.home }} – {{ p.actual_score.away }}</span>
+          <span class="dim" style="font-size:.78rem">Final score</span>
+          <span v-for="(hit, mkt) in p.outcomes" :key="mkt" v-if="hit" class="hit-badge">{{ mktLabel(mkt) }}</span>
         </div>
         <div :class="['result-pill', p.home_win_pct>=p.away_win_pct&&p.home_win_pct>=p.draw_pct ? 'win' : p.draw_pct>=p.away_win_pct ? 'draw' : 'win']">
           <span>{{ resultLabel(p) }}</span>
@@ -300,6 +324,44 @@
         </tr>
       </tbody>
     </table>
+  </main>
+
+  <!-- EDGE -->
+  <main v-if="tab==='edge'" class="main">
+    <div class="toolbar" style="margin-bottom:16px">
+      <span style="font-size:.88rem;color:#e6edf3">Historical Market Edge</span>
+      <button class="btn ghost" @click="loadEdge">↺ Refresh</button>
+    </div>
+    <div v-if="loadingEdge" class="state loading"><div class="spin"></div>Loading…</div>
+    <div v-else-if="!edgeData" class="state dim">No resolved predictions yet. Sync results first.</div>
+    <div v-else>
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th style="text-align:left">Market</th>
+            <th>Implied %</th>
+            <th>Actual %</th>
+            <th>Edge</th>
+            <th>N</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(stat, mkt) in edgeData" :key="mkt" v-if="stat.sample_size > 0">
+            <td style="text-align:left">
+              {{ mktLabel(mkt) }}
+              <span v-if="stat.edge !== null && stat.edge > 0" class="badge value" style="margin-left:6px;font-size:.65rem">⚡ +{{ stat.edge }}%</span>
+            </td>
+            <td>{{ stat.implied_pct !== null ? stat.implied_pct + '%' : '—' }}</td>
+            <td>{{ stat.actual_pct !== null ? stat.actual_pct + '%' : '—' }}</td>
+            <td :class="stat.edge > 0 ? 'pos' : stat.edge < 0 ? 'neg' : ''">
+              {{ stat.edge !== null ? (stat.edge > 0 ? '+' : '') + stat.edge + '%' : '—' }}
+            </td>
+            <td>{{ stat.sample_size }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="Object.values(edgeData).every(s => s.sample_size === 0)" class="state dim">No resolved predictions yet.</p>
+    </div>
   </main>
 
   <!-- FIXTURE PANEL -->
@@ -420,6 +482,7 @@ createApp({
       {key:'fixtures', label:'📅 Fixtures'},
       {key:'predictions', label:'🤖 Predictions'},
       {key:'standings', label:'📊 Standings'},
+      {key:'edge', label:'📐 Edge'},
     ]
     const comps = [
       {code:'ALL', label:'All'},
@@ -446,6 +509,12 @@ createApp({
     const standings = ref([])
     const loadingStand = ref(false)
     const standComp = ref('SA')
+    const edgeData = ref(null)
+    const loadingEdge = ref(false)
+    const syncing = ref(false)
+    const MIN_SAMPLE = 5
+    const resolvedCount = computed(() => predictions.value.filter(p => p.actual_score).length)
+    const unresolvedCount = computed(() => predictions.value.filter(p => !p.actual_score).length)
     const activePred = computed(() =>
       activeFixture.value ? predMap.value[activeFixture.value.fixture_id] ?? null : null
     )
@@ -573,15 +642,56 @@ createApp({
     }
     function resultPct(p) { return Math.max(p.home_win_pct,p.draw_pct,p.away_win_pct) }
 
-    onMounted(() => { loadFixtures(); loadPredictions() })
-    watch(tab, t => { if(t==='standings'&&!standings.value.length) loadStandings('SA') })
+    async function loadEdge() {
+      loadingEdge.value = true
+      try {
+        const r = await fetch(`${API}/edge`)
+        if (r.ok) edgeData.value = await r.json()
+      } catch {} finally { loadingEdge.value = false }
+    }
+
+    async function syncResults() {
+      syncing.value = true
+      try {
+        const r = await fetch(`${API}/results/sync`, { method: 'POST' })
+        const d = await r.json()
+        if (d.updated && d.updated.length > 0) {
+          await loadPredictions()
+          await loadEdge()
+        }
+      } catch {} finally { syncing.value = false }
+    }
+
+    function hasValueMarket(fixture_id) {
+      if (!edgeData.value || !predMap.value[fixture_id]) return false
+      return Object.values(edgeData.value).some(s =>
+        s.edge !== null && s.edge > 0 && s.sample_size >= MIN_SAMPLE
+      )
+    }
+
+    function mktLabel(key) {
+      const MAP = {
+        home_win: 'Home Win', draw: 'Draw', away_win: 'Away Win',
+        over_2_5: 'Over 2.5', under_2_5: 'Under 2.5',
+        over_3_5: 'Over 3.5', under_3_5: 'Under 3.5',
+        btts_yes: 'BTTS Yes', btts_no: 'BTTS No',
+      }
+      return MAP[key] || key
+    }
+
+    onMounted(() => { loadFixtures(); loadPredictions(); loadEdge() })
+    watch(tab, t => {
+      if (t === 'standings' && !standings.value.length) loadStandings('SA')
+      if (t === 'edge' && !edgeData.value) loadEdge()
+    })
 
     return {
       tab, tabs, comps, compFilter, fixtures, loadingFixtures, fixtureError,
       filteredFixtures, predictions, predMap, running, activeFixture, activeOdds,
       loadingOdds, activeNews, loadingNews, quickOdds, standings, loadingStand,
-      standComp, activePred, loadFixtures, loadStandings, openFixture, runPred,
-      hasPred, fmt, fmtShort, compClass, mkts, resultLabel, resultPct
+      standComp, activePred, edgeData, loadingEdge, syncing, resolvedCount, unresolvedCount,
+      loadFixtures, loadStandings, openFixture, runPred, loadEdge, syncResults,
+      hasPred, hasValueMarket, mktLabel, fmt, fmtShort, compClass, mkts, resultLabel, resultPct
     }
   }
 }).mount('#app')

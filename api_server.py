@@ -13,6 +13,8 @@ Endpoints:
   GET  /api/news/<home_team>/<away_team>
   POST /api/predict
   GET  /api/predictions
+  POST /api/results/sync
+  GET  /api/edge
   POST /api/cache/clear
 """
 
@@ -125,6 +127,119 @@ def _load_preds() -> list[dict]:
                      competition=comp, created_at=ts)
         out.append(entry)
     return out
+
+
+def _update_pred_data(fixture_id: int, patch: dict) -> bool:
+    """Merge patch dict into the existing data JSON blob for a prediction."""
+    with sqlite3.connect(_PRED_DB) as conn:
+        row = conn.execute(
+            "SELECT data FROM predictions WHERE fixture_id = ?", (fixture_id,)
+        ).fetchone()
+        if not row:
+            return False
+        data = json.loads(row[0])
+        data.update(patch)
+        conn.execute(
+            "UPDATE predictions SET data = ? WHERE fixture_id = ?",
+            (json.dumps(data), fixture_id),
+        )
+    return True
+
+
+def _load_resolved_preds() -> list[dict]:
+    """Load predictions that have outcomes recorded."""
+    with sqlite3.connect(_PRED_DB) as conn:
+        try:
+            rows = conn.execute(
+                "SELECT fixture_id, data FROM predictions "
+                "WHERE json_extract(data, '$.outcomes') IS NOT NULL"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # Fallback for older SQLite without json_extract
+            all_rows = conn.execute(
+                "SELECT fixture_id, data FROM predictions"
+            ).fetchall()
+            rows = [(fid, raw) for fid, raw in all_rows
+                    if "outcomes" in json.loads(raw)]
+    out = []
+    for fid, raw in rows:
+        entry = json.loads(raw)
+        entry["fixture_id"] = fid
+        out.append(entry)
+    return out
+
+
+# ── Outcome helpers ────────────────────────────────────────────────────────────
+
+def _compute_outcomes(hs: int, as_: int) -> dict:
+    """Determine which betting markets hit based on final score."""
+    total = hs + as_
+    return {
+        "home_win":  hs > as_,
+        "draw":      hs == as_,
+        "away_win":  hs < as_,
+        "over_2_5":  total > 2,
+        "under_2_5": total <= 2,
+        "over_3_5":  total > 3,
+        "under_3_5": total <= 3,
+        "btts_yes":  hs > 0 and as_ > 0,
+        "btts_no":   hs == 0 or as_ == 0,
+        # corners and cards not trackable on free API tier
+    }
+
+
+# Maps market key → consensus odds field name in live_odds.consensus
+_ODDS_KEY_MAP: dict[str, str] = {
+    "home_win":  "home",
+    "draw":      "draw",
+    "away_win":  "away",
+    "over_2_5":  "over_2_5",
+    "under_2_5": "under_2_5",
+    "btts_yes":  "btts_yes",
+    "btts_no":   "btts_no",
+    # over_3_5/under_3_5 have no odds counterpart — always use ai_pct
+}
+
+_COUNTERPART: dict[str, str] = {
+    "over_2_5": "under_2_5", "under_2_5": "over_2_5",
+    "btts_yes": "btts_no",   "btts_no":   "btts_yes",
+}
+
+
+def _implied_pct(market_key: str, consensus: dict, ai_pct: float) -> float:
+    """
+    Convert decimal odds to an implied probability (de-vigged).
+    Falls back to ai_pct if odds are absent or zero.
+    """
+    odds_key = _ODDS_KEY_MAP.get(market_key)
+    if not odds_key or not consensus:
+        return ai_pct
+
+    price = consensus.get(odds_key, 0)
+    if not price or price <= 1.0:
+        return ai_pct
+
+    # 1X2 — three-way de-vig
+    if market_key in ("home_win", "draw", "away_win"):
+        home_p = 1 / consensus["home"] if consensus.get("home") else 0
+        draw_p = 1 / consensus["draw"] if consensus.get("draw") else 0
+        away_p = 1 / consensus["away"] if consensus.get("away") else 0
+        total_raw = home_p + draw_p + away_p
+        if total_raw == 0:
+            return ai_pct
+        return round(1 / price / total_raw * 100, 1)
+
+    # Paired markets — two-way de-vig
+    counter_key = _COUNTERPART.get(market_key)
+    if counter_key:
+        counter_odds_key = _ODDS_KEY_MAP.get(counter_key, "")
+        counter_price = consensus.get(counter_odds_key, 0)
+        if counter_price and counter_price > 1.0:
+            raw_this = 1 / price
+            raw_counter = 1 / counter_price
+            return round(raw_this / (raw_this + raw_counter) * 100, 1)
+
+    return round(1 / price * 100, 1)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -307,13 +422,7 @@ def predict():
 
         prediction = get_orch().predict_fixture(fixture)
         data = prediction.to_dict()
-        _save_pred(
-            fixture_id,
-            f"{fixture.home_team} vs {fixture.away_team}",
-            fixture.competition,
-            data,
-        )
-        # Also try to fetch odds alongside (non-blocking)
+        # Fetch odds first so they are persisted alongside the prediction
         try:
             if os.getenv("ODDS_API_KEY"):
                 odds = get_odds().get_fixture_odds(
@@ -324,6 +433,12 @@ def predict():
                 data["live_odds"] = odds
         except Exception:
             pass
+        _save_pred(
+            fixture_id,
+            f"{fixture.home_team} vs {fixture.away_team}",
+            fixture.competition,
+            data,
+        )
         return jsonify(data)
     except Exception as e:
         logger.exception("predict error")
@@ -336,6 +451,113 @@ def list_predictions():
         return jsonify(_load_preds())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/results/sync", methods=["POST"])
+def results_sync():
+    """
+    Fetch final scores for all unresolved predictions and record outcomes.
+    Idempotent — already-resolved predictions are skipped.
+    """
+    preds = _load_preds()
+    updated = []
+    skipped = 0
+    errors = []
+
+    for p in preds:
+        fid = p["fixture_id"]
+
+        if p.get("result_fetched_at"):
+            skipped += 1
+            continue
+
+        try:
+            fixture = get_fd().get_match_result(fid)
+        except Exception as e:
+            logger.warning("Could not fetch result for %d: %s", fid, e)
+            errors.append({"fixture_id": fid, "error": str(e)})
+            continue
+
+        if fixture is None:
+            skipped += 1
+            continue
+
+        hs, as_ = fixture.home_score, fixture.away_score
+        if hs is None or as_ is None:
+            skipped += 1
+            continue
+
+        outcomes = _compute_outcomes(hs, as_)
+        patch = {
+            "actual_score": {"home": hs, "away": as_},
+            "outcomes": outcomes,
+            "result_fetched_at": datetime.now(timezone.utc).isoformat(),
+        }
+        _update_pred_data(fid, patch)
+        updated.append({"fixture_id": fid, "score": f"{hs}-{as_}"})
+
+    return jsonify({
+        "updated": updated,
+        "skipped_count": skipped,
+        "errors": errors,
+    })
+
+
+@app.route("/api/edge")
+def edge_stats():
+    """
+    Returns per-market edge stats across all resolved predictions.
+    Edge = actual_pct - implied_pct.
+    implied_pct is derived from live_odds consensus (de-vigged), or AI prediction % if no odds.
+    """
+    resolved = _load_resolved_preds()
+
+    # market_key → (ai_pred_field, outcome_key)
+    MARKET_MAP = {
+        "home_win":  ("home_win_pct",  "home_win"),
+        "draw":      ("draw_pct",      "draw"),
+        "away_win":  ("away_win_pct",  "away_win"),
+        "over_2_5":  ("over_2_5_pct",  "over_2_5"),
+        "under_2_5": ("under_2_5_pct", "under_2_5"),
+        "over_3_5":  ("over_3_5_pct",  "over_3_5"),
+        "under_3_5": ("under_3_5_pct", "under_3_5"),
+        "btts_yes":  ("btts_yes_pct",  "btts_yes"),
+        "btts_no":   ("btts_no_pct",   "btts_no"),
+    }
+
+    # Accumulate per-market: list of (implied_pct, did_hit)
+    accum: dict[str, list[tuple[float, bool]]] = {k: [] for k in MARKET_MAP}
+
+    for p in resolved:
+        outcomes = p.get("outcomes", {})
+        consensus = p.get("live_odds", {}).get("consensus", {})
+
+        for mkt_key, (pred_field, outcome_key) in MARKET_MAP.items():
+            did_hit = outcomes.get(outcome_key)
+            if did_hit is None:
+                continue
+            implied = _implied_pct(mkt_key, consensus, p.get(pred_field, 0.0))
+            accum[mkt_key].append((implied, did_hit))
+
+    result = {}
+    for mkt_key, data_points in accum.items():
+        n = len(data_points)
+        if n == 0:
+            result[mkt_key] = {
+                "implied_pct": None, "actual_pct": None,
+                "edge": None, "sample_size": 0,
+            }
+            continue
+        avg_implied = round(sum(x[0] for x in data_points) / n, 1)
+        actual = round(sum(1 for _, hit in data_points if hit) / n * 100, 1)
+        result[mkt_key] = {
+            "implied_pct": avg_implied,
+            "actual_pct":  actual,
+            "edge":        round(actual - avg_implied, 1),
+            "sample_size": n,
+        }
+
+    return jsonify(result)
 
 
 @app.route("/api/cache/clear", methods=["POST"])

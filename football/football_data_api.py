@@ -94,6 +94,22 @@ class FootballDataClient:
         fixtures = self._parse_fixtures(data, competition_code)
         return fixtures[-limit:]
 
+    def get_match_result(self, fixture_id: int) -> Optional[Fixture]:
+        """
+        Fetch a single match by ID and return it as a Fixture.
+        Returns None if not found or not yet FINISHED.
+        """
+        data = self._get(f"matches/{fixture_id}")
+        # v4 API wraps the object under a "match" key
+        match = data.get("match") or data
+        if not match or match.get("status") != "FINISHED":
+            return None
+        try:
+            fixtures = self._parse_fixtures({"matches": [match]}, competition_code="")
+            return fixtures[0] if fixtures else None
+        except (IndexError, KeyError):
+            return None
+
     def get_team_matches(self, team_id: int, limit: int = 10) -> list[Fixture]:
         """Return last N finished matches for a specific team."""
         data = self._get(f"teams/{team_id}/matches",
