@@ -79,9 +79,9 @@ class BettingOrchestrator:
         return prediction
 
     def get_upcoming_fixtures(self) -> list[Fixture]:
-        """Return all upcoming fixtures for Serie A and Champions League."""
+        """Return all upcoming fixtures across all supported competitions."""
         fixtures = []
-        for code in ("SA", "CL"):
+        for code in ("SA", "CL", "WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF"):
             try:
                 upcoming = self.fd_client.get_upcoming_fixtures(code, days_ahead=14)
                 fixtures.extend(upcoming)

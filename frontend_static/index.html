@@ -214,7 +214,7 @@
         @click="openFixture(f)">
         <div class="f-top">
           <span :class="['badge', f.competition_code.toLowerCase()]">
-            {{ f.competition_code==='SA' ? '🇮🇹 Serie A' : '⭐ UCL' }}
+            {{ compBadgeLabel(f.competition_code) }}
           </span>
           <span class="f-date">{{ fmt(f.match_date) }}</span>
           <span v-if="f.matchday" class="f-md">MD {{ f.matchday }}</span>
@@ -485,10 +485,22 @@ createApp({
       {key:'edge', label:'📐 Edge'},
     ]
     const comps = [
-      {code:'ALL', label:'All'},
-      {code:'SA',  label:'🇮🇹 Serie A'},
-      {code:'CL',  label:'⭐ UCL'},
+      {code:'ALL',   label:'All'},
+      {code:'SA',    label:'🇮🇹 Serie A'},
+      {code:'CL',    label:'⭐ UCL'},
+      {code:'WC',    label:'🌍 World Cup'},
+      {code:'WCQE',  label:'🏆 WCQ Europe'},
+      {code:'WCQA',  label:'🏆 WCQ Americas'},
+      {code:'WCQC',  label:'🏆 WCQ CONCACAF'},
+      {code:'WCQAS', label:'🏆 WCQ Asia'},
+      {code:'WCQAF', label:'🏆 WCQ Africa'},
     ]
+    const COMP_LABEL = {
+      SA:'🇮🇹 Serie A', CL:'⭐ UCL', WC:'🌍 World Cup',
+      WCQE:'🏆 WCQ Europe', WCQA:'🏆 WCQ Americas',
+      WCQC:'🏆 WCQ CONCACAF', WCQAS:'🏆 WCQ Asia', WCQAF:'🏆 WCQ Africa',
+    }
+    function compBadgeLabel(code) { return COMP_LABEL[code] ?? code }
     const compFilter = ref('ALL')
     const fixtures = ref([])
     const loadingFixtures = ref(false)
@@ -535,7 +547,7 @@ createApp({
     }
 
     async function loadAllOdds() {
-      for (const code of ['SA','CL']) {
+      for (const code of ['SA','CL','WC','WCQE','WCQA','WCQC','WCQAS','WCQAF']) {
         try {
           const r = await fetch(`${API}/odds/${code}`)
           if (!r.ok) continue
@@ -691,7 +703,8 @@ createApp({
       loadingOdds, activeNews, loadingNews, quickOdds, standings, loadingStand,
       standComp, activePred, edgeData, loadingEdge, syncing, resolvedCount, unresolvedCount,
       loadFixtures, loadStandings, openFixture, runPred, loadEdge, syncResults,
-      hasPred, hasValueMarket, mktLabel, fmt, fmtShort, compClass, mkts, resultLabel, resultPct
+      hasPred, hasValueMarket, mktLabel, fmt, fmtShort, compClass, mkts, resultLabel, resultPct,
+      compBadgeLabel
     }
   }
 }).mount('#app')

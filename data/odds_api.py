@@ -7,6 +7,12 @@ Register at https://the-odds-api.com/#get-access
 Fetches live bookmaker odds for:
   - Serie A (soccer_italy_serie_a)
   - Champions League (soccer_uefa_champions_league)
+  - FIFA World Cup (soccer_fifa_world_cup)
+  - WCQ Europe (soccer_eu_world_cup_qualification)
+  - WCQ Americas (soccer_conmebol_world_cup_qualifying)
+  - WCQ CONCACAF (soccer_concacaf_world_cup_qualifying)
+  - WCQ Asia (soccer_afc_world_cup_qualifying)
+  - WCQ Africa (soccer_caf_world_cup_qualifying)
 
 Markets covered:
   - h2h          → 1X2 match result
@@ -32,8 +38,14 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.the-odds-api.com/v4"
 
 SPORT_KEYS = {
-    "SA": "soccer_italy_serie_a",
-    "CL": "soccer_uefa_champions_league",
+    "SA":   "soccer_italy_serie_a",
+    "CL":   "soccer_uefa_champions_league",
+    "WC":   "soccer_fifa_world_cup",
+    "WCQE": "soccer_eu_world_cup_qualification",
+    "WCQA": "soccer_conmebol_world_cup_qualifying",
+    "WCQC": "soccer_concacaf_world_cup_qualifying",
+    "WCQAS": "soccer_afc_world_cup_qualifying",
+    "WCQAF": "soccer_caf_world_cup_qualifying",
 }
 
 # Bookmakers to include (shown in the UI)

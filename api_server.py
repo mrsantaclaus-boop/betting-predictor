@@ -290,8 +290,9 @@ def fixtures():
 
 @app.route("/api/standings/<competition_code>")
 def standings(competition_code: str):
-    if competition_code not in ("SA", "CL"):
-        return jsonify({"error": "Use SA or CL"}), 400
+    VALID = {"SA", "CL", "WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF"}
+    if competition_code not in VALID:
+        return jsonify({"error": f"Unknown competition: {competition_code}"}), 400
 
     def fetch():
         rows = get_fd().get_standings(competition_code)
@@ -310,8 +311,9 @@ def standings(competition_code: str):
 @app.route("/api/odds/<competition_code>")
 def odds_by_competition(competition_code: str):
     """All live odds for a competition."""
-    if competition_code not in ("SA", "CL"):
-        return jsonify({"error": "Use SA or CL"}), 400
+    VALID = {"SA", "CL", "WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF"}
+    if competition_code not in VALID:
+        return jsonify({"error": f"Unknown competition: {competition_code}"}), 400
     if not os.getenv("ODDS_API_KEY"):
         return jsonify({"error": "ODDS_API_KEY not configured"}), 503
 
