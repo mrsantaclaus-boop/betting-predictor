@@ -45,7 +45,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── App setup ─────────────────────────────────────────────────────────────────
+# ── App setup ─────────────────────────────────────────────────────────────────────────
 
 app = Flask(__name__, static_folder="frontend_static", static_url_path="")
 CORS(app, origins="*")
@@ -98,7 +98,7 @@ def get_news() -> NewsFetcher:
     return _news_fetcher
 
 
-# ── Predictions DB ────────────────────────────────────────────────────────────
+# ── Predictions DB ──────────────────────────────────────────────────────────────────
 
 def _init_pred_db():
     _PRED_DB.parent.mkdir(exist_ok=True)
@@ -113,6 +113,10 @@ def _init_pred_db():
                 data        TEXT    NOT NULL
             )
         """)
+
+
+# Initialise DB immediately at import time (works under Gunicorn/Render, not just __main__)
+_init_pred_db()
 
 
 def _save_pred(fixture_id: int, match_label: str, competition: str, data: dict):
@@ -180,7 +184,7 @@ def _load_resolved_preds() -> list[dict]:
     return out
 
 
-# ── Outcome helpers ────────────────────────────────────────────────────────────
+# ── Outcome helpers ────────────────────────────────────────────────────────────────────
 
 def _compute_outcomes(hs: int, as_: int) -> dict:
     """Determine which betting markets hit based on final score."""
@@ -256,7 +260,7 @@ def _implied_pct(market_key: str, consensus: dict, ai_pct: float) -> float:
     return round(1 / price * 100, 1)
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers ─────────────────────────────────────────────────────────────────────────────
 
 def _fixture_list():
     def fetch():
@@ -281,7 +285,7 @@ def _fixture_list():
     return _cache.get_or_fetch("fixtures:all", fetch, TTL["fixtures"])
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+# ── Routes ────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/health")
 def health():
@@ -594,7 +598,7 @@ def clear_cache():
     return jsonify({"deleted": count})
 
 
-# ── Serve Vue.js frontend (production) ────────────────────────────────────────
+# ── Serve Vue.js frontend (production) ────────────────────────────────────────────────
 
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
@@ -606,7 +610,7 @@ def serve_frontend(path: str):
     return send_from_directory("frontend_static", "index.html")
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ── Entry point ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     _init_pred_db()
