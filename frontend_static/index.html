@@ -348,18 +348,20 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(stat, mkt) in edgeData" :key="mkt" v-if="stat.sample_size > 0">
-            <td style="text-align:left">
-              {{ mktLabel(mkt) }}
-              <span v-if="stat.edge !== null && stat.edge > 0" class="badge value" style="margin-left:6px;font-size:.65rem">⚡ +{{ stat.edge }}%</span>
-            </td>
-            <td>{{ stat.implied_pct !== null ? stat.implied_pct + '%' : '—' }}</td>
-            <td>{{ stat.actual_pct !== null ? stat.actual_pct + '%' : '—' }}</td>
-            <td :class="stat.edge > 0 ? 'pos' : stat.edge < 0 ? 'neg' : ''">
-              {{ stat.edge !== null ? (stat.edge > 0 ? '+' : '') + stat.edge + '%' : '—' }}
-            </td>
-            <td>{{ stat.sample_size }}</td>
-          </tr>
+          <template v-for="(stat, mkt) in edgeData" :key="mkt">
+            <tr v-if="stat.sample_size > 0">
+              <td style="text-align:left">
+                {{ mktLabel(mkt) }}
+                <span v-if="stat.edge !== null && stat.edge > 0" class="badge value" style="margin-left:6px;font-size:.65rem">⚡ +{{ stat.edge }}%</span>
+              </td>
+              <td>{{ stat.implied_pct !== null ? stat.implied_pct + '%' : '—' }}</td>
+              <td>{{ stat.actual_pct !== null ? stat.actual_pct + '%' : '—' }}</td>
+              <td :class="stat.edge > 0 ? 'pos' : stat.edge < 0 ? 'neg' : ''">
+                {{ stat.edge !== null ? (stat.edge > 0 ? '+' : '') + stat.edge + '%' : '—' }}
+              </td>
+              <td>{{ stat.sample_size }}</td>
+            </tr>
+          </template>
         </tbody>
       </table>
       <p v-if="Object.values(edgeData).every(s => s.sample_size === 0)" class="state dim">No resolved predictions yet.</p>
