@@ -48,6 +48,9 @@ services:
       - key: FLASK_ENV
         value: production
 
+      - key: PRED_DB_PATH
+        value: /app/data/predictions.db
+
       - key: LOCAL_ZEP_DB_PATH
         value: /app/data/local_memory.db
 

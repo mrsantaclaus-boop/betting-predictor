@@ -57,7 +57,7 @@ _odds_client: OddsAPIClient | None = None
 _news_fetcher: NewsFetcher | None = None
 _cache = get_cache()
 
-_PRED_DB = Path("data/predictions.db")
+_PRED_DB = Path(os.getenv("PRED_DB_PATH", "data/predictions.db"))
 
 
 def get_orch() -> BettingOrchestrator:
