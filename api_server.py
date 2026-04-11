@@ -115,14 +115,22 @@ def get_news() -> NewsFetcher:
 def _get_conn():
     """Return a DB connection — PostgreSQL if DATABASE_URL set, else SQLite."""
     if _USE_PG:
-        return psycopg2.connect(_DATABASE_URL)
+        try:
+            return psycopg2.connect(_DATABASE_URL, connect_timeout=5)
+        except Exception as e:
+            logger.warning("PostgreSQL connection failed, falling back to SQLite: %s", e)
     _PRED_DB.parent.mkdir(exist_ok=True)
     return sqlite3.connect(_PRED_DB)
 
 
+def _is_pg_conn(conn) -> bool:
+    return _USE_PG and hasattr(conn, 'cursor')
+
+
 def _init_pred_db():
-    if _USE_PG:
-        with _get_conn() as conn:
+    conn = _get_conn()
+    if _is_pg_conn(conn):
+        with conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS predictions (
@@ -135,7 +143,7 @@ def _init_pred_db():
                     )
                 """)
     else:
-        with _get_conn() as conn:
+        with conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
