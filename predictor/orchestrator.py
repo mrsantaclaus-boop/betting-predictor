@@ -113,11 +113,18 @@ class BettingOrchestrator:
         except Exception as e:
             logger.warning("Poisson goals model failed (non-fatal): %s", e)
 
-        # 6. Override corner predictions with Poisson model
+        # 6. Override corner predictions with Poisson model (venue-specific)
         try:
+            # Prefer venue-specific split; fall back to overall corners_pg
+            home_cpg = (report.home_stats.corners_home_pg
+                        if report.home_stats.corners_home_pg > 0
+                        else report.home_stats.corners_pg)
+            away_cpg = (report.away_stats.corners_away_pg
+                        if report.away_stats.corners_away_pg > 0
+                        else report.away_stats.corners_pg)
             corner_poisson = compute_corner_poisson(
-                report.home_stats.corners_pg,
-                report.away_stats.corners_pg,
+                home_cpg,
+                away_cpg,
                 fixture.competition_code,
             )
             if corner_poisson:
@@ -125,8 +132,9 @@ class BettingOrchestrator:
                 prediction.under_9_5_corners_pct = corner_poisson.under_9_5_corners_pct
                 prediction.poisson_corners_lambda = corner_poisson.lambda_corners
                 logger.info(
-                    "Poisson corners: λ=%.2f → O9.5: %.1f%%",
-                    corner_poisson.lambda_corners, corner_poisson.over_9_5_corners_pct,
+                    "Poisson corners: λ=%.2f (home_cpg=%.2f away_cpg=%.2f) → O9.5: %.1f%%",
+                    corner_poisson.lambda_corners, home_cpg, away_cpg,
+                    corner_poisson.over_9_5_corners_pct,
                 )
         except Exception as e:
             logger.warning("Poisson corners model failed (non-fatal): %s", e)

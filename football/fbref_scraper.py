@@ -92,6 +92,24 @@ class FBrefScraper:
             return []
 
         stats = self._parse_squad_stats(soup, competition_code)
+
+        # Enrich with home/away corner splits (2 extra requests, cached)
+        try:
+            homeaway = self._get_corners_homeaway(comp["id"], comp["slug"], competition_code)
+            for s in stats:
+                entry = homeaway.get(s.team_name)
+                if not entry:
+                    # Fuzzy match
+                    kw = self._name_keywords(s.team_name)
+                    for name, val in homeaway.items():
+                        if kw & self._name_keywords(name):
+                            entry = val
+                            break
+                if entry:
+                    s.corners_home_pg, s.corners_away_pg = entry
+        except Exception as e:
+            logger.warning("Home/away corners fetch failed (non-fatal): %s", e)
+
         self._cache[cache_key] = stats
         return stats
 
@@ -271,6 +289,39 @@ class FBrefScraper:
                 continue
 
         return corners
+
+    def _get_corners_homeaway(
+        self, comp_id: str, slug: str, competition_code: str
+    ) -> dict[str, tuple[float, float]]:
+        """
+        Fetch per-team corner averages split by venue from FBref home/away pages.
+        Returns {team_name: (home_cpg, away_cpg)}.
+        Pages: /comps/{id}/home/{slug}-Stats and /comps/{id}/away/{slug}-Stats
+        """
+        result: dict[str, tuple[float, float]] = {}
+
+        home_url = f"https://fbref.com/en/comps/{comp_id}/home/{slug}-Stats"
+        away_url = f"https://fbref.com/en/comps/{comp_id}/away/{slug}-Stats"
+
+        home_soup = _get(home_url)
+        home_map: dict[str, float] = {}
+        if home_soup:
+            for name, cpg in self._parse_corners(home_soup, competition_code):
+                home_map[name] = cpg
+
+        away_soup = _get(away_url)
+        away_map: dict[str, float] = {}
+        if away_soup:
+            for name, cpg in self._parse_corners(away_soup, competition_code):
+                away_map[name] = cpg
+
+        for team in set(home_map) | set(away_map):
+            result[team] = (home_map.get(team, 0.0), away_map.get(team, 0.0))
+
+        logger.debug(
+            "Home/away corners fetched for %s: %d teams", competition_code, len(result)
+        )
+        return result
 
     # ── Per-match corner counts ───────────────────────────────────────────────
 
