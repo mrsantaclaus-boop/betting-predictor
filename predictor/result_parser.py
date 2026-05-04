@@ -52,6 +52,11 @@ class BettingPrediction:
     most_likely_scoreline: str = ""
     confidence: str = "medium"
 
+    # Cards (Poisson-computed)
+    over_4_5_yellow_pct: float = 0.0
+    under_4_5_yellow_pct: float = 0.0
+    poisson_cards_lambda: float = 0.0
+
     # Poisson model output (computed post-LLM)
     poisson_lambda_home: float = 0.0
     poisson_lambda_away: float = 0.0
@@ -189,6 +194,7 @@ class ResultParser:
         normalise_pair("btts_yes_pct", "btts_no_pct")
         normalise_pair("over_9_5_corners_pct", "under_9_5_corners_pct")
         normalise_pair("over_3_5_cards_pct", "under_3_5_cards_pct")
+        normalise_pair("over_4_5_yellow_pct", "under_4_5_yellow_pct")
 
         # 1X2 — normalise three-way
         total_1x2 = pred.home_win_pct + pred.draw_pct + pred.away_win_pct

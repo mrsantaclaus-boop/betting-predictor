@@ -144,6 +144,36 @@ class BettingOrchestrator:
         except Exception as e:
             logger.warning("Poisson corners model failed (non-fatal): %s", e)
 
+        # 7. Override card predictions with Poisson model
+        try:
+            cards_poisson = compute_cards_poisson(
+                report.home_stats.yellow_cards_pg,
+                report.away_stats.yellow_cards_pg,
+                report.home_stats.red_cards_pg,
+                report.away_stats.red_cards_pg,
+                fixture.competition_code,
+            )
+            if cards_poisson:
+                prediction.over_3_5_cards_pct   = cards_poisson.over_3_5_yellow_pct
+                prediction.under_3_5_cards_pct  = cards_poisson.under_3_5_yellow_pct
+                prediction.over_4_5_yellow_pct  = cards_poisson.over_4_5_yellow_pct
+                prediction.under_4_5_yellow_pct = cards_poisson.under_4_5_yellow_pct
+                prediction.poisson_cards_lambda  = cards_poisson.lambda_yellow
+                # P(at least one red card) from Poisson(lambda_red)
+                import math as _math
+                prediction.red_card_pct = round(
+                    (1.0 - _math.exp(-cards_poisson.lambda_red)) * 100, 1
+                )
+                logger.info(
+                    "Poisson cards: λ_y=%.2f → O3.5Y: %.1f%% O4.5Y: %.1f%% red: %.1f%%",
+                    cards_poisson.lambda_yellow,
+                    cards_poisson.over_3_5_yellow_pct,
+                    cards_poisson.over_4_5_yellow_pct,
+                    prediction.red_card_pct,
+                )
+        except Exception as e:
+            logger.warning("Poisson cards model failed (non-fatal): %s", e)
+
         logger.info("Prediction complete: %s", json.dumps(prediction.to_dict(), indent=2))
         return prediction
 
