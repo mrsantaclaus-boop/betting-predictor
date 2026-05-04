@@ -263,7 +263,10 @@
             <h3>{{ p.match_label }}</h3>
             <span class="pred-date">{{ fmt(p.created_at) }}</span>
           </div>
-          <span :class="['confidence', p.confidence]">{{ p.confidence }}</span>
+          <div>
+            <span :class="['confidence', p.confidence]">{{ p.confidence }}</span>
+            <div v-if="p.motivation_context" style="font-size:.75rem;color:#e3b341;margin-top:4px;max-width:200px;line-height:1.35">{{ p.motivation_context }}</div>
+          </div>
         </div>
         <div v-if="p.actual_score" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
           <span class="score-badge">{{ p.actual_score.home }} – {{ p.actual_score.away }}</span>
@@ -350,10 +353,12 @@
     <div v-else-if="!valueBets.length" class="state dim">No value bets found. Run predictions and add ODDS_API_KEY to enable odds comparison.</div>
     <div v-else style="display:flex;flex-direction:column;gap:14px">
       <div v-for="vb in valueBets" :key="vb.fixture_id"
-           style="background:#161b22;border:1px solid #21262d;border-radius:10px;padding:16px 18px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+           :style="{background:'#161b22', border:'1px solid ' + (vb.odds_stale ? '#5a2020' : '#21262d'), borderRadius:'10px', padding:'16px 18px'}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
           <span :class="['badge', compCodeFromLabel(vb.competition)]">{{ vb.competition }}</span>
           <span style="font-size:.9rem;font-weight:600;color:#e6edf3">{{ vb.match_label }}</span>
+          <span v-if="vb.odds_stale" style="margin-left:auto;padding:2px 8px;border-radius:8px;background:#2a1010;color:#f85149;font-size:.72rem;font-weight:600;border:1px solid #5a2020">⚠ Stale odds</span>
+          <span v-else-if="vb.odds_age" style="margin-left:auto;font-size:.75rem;color:#6e7681">Odds: {{ vb.odds_age }}</span>
         </div>
         <table class="tbl" style="margin-top:0">
           <thead>
@@ -517,6 +522,10 @@
             <span v-if="activePred.poisson_lambda_home" class="dim" style="font-size:.72rem;margin-left:auto">
               λ {{ activePred.poisson_lambda_home }} / {{ activePred.poisson_lambda_away }}
             </span>
+          </div>
+          <div v-if="activePred.motivation_context"
+               style="margin-top:8px;padding:8px 12px;background:#161b22;border-radius:8px;border-left:3px solid #e3b341;font-size:.8rem;color:#e3b341">
+            {{ activePred.motivation_context }}
           </div>
           <div v-if="activePred.poisson_top_scorelines&&activePred.poisson_top_scorelines.length" style="margin-top:10px">
             <div style="font-size:.72rem;color:#6e7681;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Score probabilities (Poisson)</div>
