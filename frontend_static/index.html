@@ -282,8 +282,8 @@
           <div v-for="m in mkts(p)" :key="m.label" class="mkt-card">
             <div class="mkt-lbl">{{ m.label }}</div>
             <div class="pill-row">
-              <span :class="['pill', m.aEdge ? 'value' : m.a>=50?'hot':'cool']">{{ m.aLbl }}<br><strong>{{ m.a }}%</strong><span v-if="m.aEdge" style="display:block;font-size:.66rem;color:#3fb950;margin-top:1px">⚡ +{{ m.aEdge }}%</span></span>
-              <span :class="['pill', m.bEdge ? 'value' : m.b>m.a?'hot':'cool']">{{ m.bLbl }}<br><strong>{{ m.b }}%</strong><span v-if="m.bEdge" style="display:block;font-size:.66rem;color:#3fb950;margin-top:1px">⚡ +{{ m.bEdge }}%</span></span>
+              <span :class="['pill', m.aEdge !== null && m.aEdge >= 5 ? 'value' : m.a>=50?'hot':'cool']">{{ m.aLbl }}<br><strong>{{ m.a }}%</strong><span v-if="m.aEdge !== null" :style="{display:'block',fontSize:'.66rem',marginTop:'1px',color: m.aEdge>=5?'#3fb950':m.aEdge>0?'#e3b341':'#6e7681'}">{{ m.aEdge >= 5 ? '⚡ ' : '' }}{{ m.aEdge > 0 ? '+' : '' }}{{ m.aEdge }}%</span></span>
+              <span :class="['pill', m.bEdge !== null && m.bEdge >= 5 ? 'value' : m.b>m.a?'hot':'cool']">{{ m.bLbl }}<br><strong>{{ m.b }}%</strong><span v-if="m.bEdge !== null" :style="{display:'block',fontSize:'.66rem',marginTop:'1px',color: m.bEdge>=5?'#3fb950':m.bEdge>0?'#e3b341':'#6e7681'}">{{ m.bEdge >= 5 ? '⚡ ' : '' }}{{ m.bEdge > 0 ? '+' : '' }}{{ m.bEdge }}%</span></span>
             </div>
           </div>
         </div>
@@ -771,11 +771,10 @@ createApp({
         const p1 = 1/o1, p2 = 1/o2, tot = p1 + p2
         return [Math.round(p1/tot*1000)/10, Math.round(p2/tot*1000)/10]
       }
-      // Return edge value if >= 2%, else null
+      // Always return edge when odds exist (null = no odds available)
       function edgeFmt(modelPct, impliedPct) {
         if (impliedPct === null) return null
-        const e = Math.round((modelPct - impliedPct) * 10) / 10
-        return e >= 2 ? e : null
+        return Math.round((modelPct - impliedPct) * 10) / 10
       }
 
       const [io25, iu25] = imp2(c.over_2_5,  c.under_2_5)
