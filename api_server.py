@@ -396,10 +396,26 @@ def _fixture_list():
 
 @app.route("/api/health")
 def health():
+    import os as _os
+    # Count predictions with at least one valid xG value as a data quality proxy
+    try:
+        preds = _load_preds()
+        total_preds = len(preds)
+        resolved = sum(1 for p in preds if p.get("result_fetched_at"))
+        with_odds = sum(1 for p in preds if p.get("live_odds", {}).get("consensus"))
+    except Exception:
+        total_preds = resolved = with_odds = 0
+
     return jsonify({
         "status": "ok",
         "time": datetime.now(timezone.utc).isoformat(),
         "odds_quota": get_odds().quota_remaining,
+        "llm_enabled": _os.getenv("USE_LLM", "false").lower() == "true",
+        "predictions": {
+            "total": total_preds,
+            "resolved": resolved,
+            "with_odds": with_odds,
+        },
     })
 
 
