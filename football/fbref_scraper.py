@@ -451,6 +451,55 @@ class FBrefScraper:
         logger.debug("FBref: corners not found in match report %s", match_url)
         return {}
 
+    # ── Referee stats ─────────────────────────────────────────────────────────
+
+    def get_referee_stats(self, competition_code: str) -> dict[str, float]:
+        """
+        Scrape per-referee yellow cards per game for a competition.
+        Returns {referee_name: yellow_cards_pg}.
+        Only available for competitions in FBREF_COMPETITIONS.
+        """
+        cache_key = f"referees:{competition_code}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]  # type: ignore[return-value]
+
+        comp = FBREF_COMPETITIONS.get(competition_code)
+        if not comp:
+            return {}
+
+        url = (
+            f"https://fbref.com/en/comps/{comp['id']}/"
+            f"referees/{comp['slug']}-Referees"
+        )
+        soup = _get(url)
+        if not soup:
+            return {}
+
+        table = soup.find("table", id=re.compile(r"stats_referee"))
+        if not table:
+            logger.debug("FBref: no referee table found for %s", competition_code)
+            return {}
+
+        result: dict[str, float] = {}
+        for row in table.find("tbody").find_all("tr"):
+            name_cell = row.find("th", {"data-stat": "referee"})
+            games_cell = row.find("td", {"data-stat": "games"})
+            yellow_cell = row.find("td", {"data-stat": "cards_yellow"})
+            if not name_cell or not games_cell or not yellow_cell:
+                continue
+            try:
+                name = name_cell.get_text(strip=True)
+                games = int(games_cell.get_text(strip=True) or 0)
+                yellows = int(yellow_cell.get_text(strip=True) or 0)
+                if games > 0 and name:
+                    result[name] = round(yellows / games, 3)
+            except (ValueError, AttributeError):
+                continue
+
+        self._cache[cache_key] = result  # type: ignore[assignment]
+        logger.info("FBref referees loaded for %s: %d entries", competition_code, len(result))
+        return result
+
     # ── BTTS & clean sheets (from schedule page) ──────────────────────────────
 
     def get_btts_and_clean_sheets(self, competition_code: str) -> dict[str, dict]:
