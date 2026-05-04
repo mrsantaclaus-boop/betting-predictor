@@ -204,6 +204,9 @@ class BettingOrchestrator:
         except Exception as e:
             logger.warning("Poisson cards model failed (non-fatal): %s", e)
 
+        # ── Summary ──────────────────────────────────────────────────────────
+        prediction.prediction_summary = self._build_summary(fixture, report, prediction)
+
         logger.info("Prediction complete: %s", json.dumps(prediction.to_dict(), indent=2))
         return prediction
 
@@ -521,6 +524,96 @@ class BettingOrchestrator:
                     parts.append("Low-stakes (large points gap, mid-table)")
 
         return "; ".join(parts) if parts else ""
+
+    @staticmethod
+    def _build_summary(fixture: Fixture, report, prediction) -> str:
+        """
+        Build a concise analyst-style rationale from model outputs and input data.
+        Pure template logic — no LLM, no extra latency.
+        Sentence order: attacking profile → H2H → model verdict → confidence note.
+        """
+        from football.models import MatchReport as _MR  # noqa: local import avoids circular
+
+        lines: list[str] = []
+        hs = report.home_stats
+        as_ = report.away_stats
+        lh  = prediction.poisson_lambda_home
+        la  = prediction.poisson_lambda_away
+
+        # ── Sentence 1: Attacking/defensive profile ───────────────────────
+        if lh > 0 and la > 0:
+            def _desc(name: str, stats, lam: float) -> str:
+                bits = [f"λ={lam:.2f}"]
+                if stats.xg_pg > 0:
+                    bits.append(f"xG={stats.xg_pg:.1f}/g")
+                if stats.goals_conceded_pg > 0:
+                    bits.append(f"GA={stats.goals_conceded_pg:.1f}/g")
+                if stats.games_played >= 3:
+                    bits.append(f"{stats.games_played}gp")
+                return f"{name} ({', '.join(bits)})"
+
+            neutral_note = " [neutral venue]" if fixture.is_neutral else ""
+            lines.append(
+                f"{_desc(fixture.home_team, hs, lh)} vs "
+                f"{_desc(fixture.away_team, as_, la)}{neutral_note}."
+            )
+
+        # ── Sentence 2: H2H ───────────────────────────────────────────────
+        h2h = report.head_to_head
+        if h2h and h2h.total_meetings >= 1:
+            m = h2h.total_meetings
+            avg_g = f", avg {h2h.avg_goals:.1f} goals" if h2h.avg_goals > 0 else ""
+            lines.append(
+                f"H2H ({m} meetings): {h2h.home_wins}W {h2h.draws}D {h2h.away_wins}L{avg_g}."
+            )
+        else:
+            lines.append("No H2H history in the database.")
+
+        # ── Sentence 3: Model verdict ─────────────────────────────────────
+        hw_p = prediction.home_win_pct
+        d_p  = prediction.draw_pct
+        aw_p = prediction.away_win_pct
+        o25  = prediction.over_2_5_pct
+        btts = prediction.btts_yes_pct
+
+        if any((hw_p, d_p, aw_p)):
+            dominant = max(hw_p, d_p, aw_p)
+            if hw_p >= d_p and hw_p >= aw_p:
+                dom_lbl = f"{fixture.home_team} win"
+            elif d_p >= aw_p:
+                dom_lbl = "draw"
+            else:
+                dom_lbl = f"{fixture.away_team} win"
+
+            extras: list[str] = []
+            if o25 > 0:
+                extras.append(f"O2.5 {o25:.0f}%")
+            if btts > 0:
+                btts_tag = "BTTS yes" if btts >= 50 else "BTTS no"
+                extras.append(f"{btts_tag} ({btts:.0f}%)")
+
+            verdict = f"Model favours {dom_lbl} ({dominant:.0f}%)"
+            if extras:
+                verdict += f"; {', '.join(extras)}"
+            lines.append(verdict + ".")
+
+        # ── Sentence 4: Confidence/data note ─────────────────────────────
+        conf = prediction.confidence
+        if conf == "low":
+            thin = [
+                name for name, st in (
+                    (fixture.home_team, hs), (fixture.away_team, as_)
+                )
+                if st.xg_pg == 0.0 or st.games_played < 5
+            ]
+            if thin:
+                lines.append(f"Low confidence — limited FBref data for {' & '.join(thin)}.")
+            else:
+                lines.append("Low confidence — outcome distribution too uncertain.")
+        elif conf == "medium" and (not h2h or h2h.total_meetings == 0):
+            lines.append("Medium confidence — no H2H history to anchor the model.")
+
+        return " ".join(lines)
 
     def _referee_factor(self, fixture: Fixture) -> float:
         """

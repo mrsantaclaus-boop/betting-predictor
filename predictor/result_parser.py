@@ -65,6 +65,7 @@ class BettingPrediction:
 
     # Context
     motivation_context: str = ""
+    prediction_summary: str = ""
 
     # Meta
     raw_report: str = ""

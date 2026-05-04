@@ -302,6 +302,10 @@
             <div style="font-size:.68rem;color:#8b949e">{{ pct }}%</div>
           </div>
         </div>
+        <div v-if="p.prediction_summary"
+             style="margin-top:10px;padding:10px 12px;background:#0d1117;border:1px solid #21262d;border-radius:8px;font-size:.8rem;color:#8b949e;line-height:1.5">
+          {{ p.prediction_summary }}
+        </div>
         <div v-if="p.live_odds&&p.live_odds.consensus" class="pred-odds">
           <span class="dim">Live odds:</span>
           <span class="odd h">{{ p.live_odds.consensus.home }}</span>
@@ -526,6 +530,11 @@
           <div v-if="activePred.motivation_context"
                style="margin-top:8px;padding:8px 12px;background:#161b22;border-radius:8px;border-left:3px solid #e3b341;font-size:.8rem;color:#e3b341">
             {{ activePred.motivation_context }}
+          </div>
+          <div v-if="activePred.prediction_summary"
+               style="margin-top:10px;padding:12px 14px;background:#161b22;border:1px solid #21262d;border-radius:8px;font-size:.82rem;color:#c9d1d9;line-height:1.55">
+            <span style="font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:#6e7681;display:block;margin-bottom:5px">Analyst summary</span>
+            {{ activePred.prediction_summary }}
           </div>
           <div v-if="activePred.poisson_top_scorelines&&activePred.poisson_top_scorelines.length" style="margin-top:10px">
             <div style="font-size:.72rem;color:#6e7681;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Score probabilities (Poisson)</div>
