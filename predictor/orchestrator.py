@@ -248,6 +248,21 @@ class BettingOrchestrator:
         self._apply_btts(home_stats, fixture.home_team, btts_data)
         self._apply_btts(away_stats, fixture.away_team, btts_data)
 
+        # Injuries — only available via API-Football (WCQ competitions)
+        if code in self._API_FOOTBALL_CODES:
+            home_injuries, away_injuries = self._safe(
+                lambda: self.af_client.get_injuries(
+                    fixture.fixture_id, fixture.home_team, fixture.away_team
+                ),
+                default_factory=lambda: (
+                    InjuryReport(team_name=fixture.home_team),
+                    InjuryReport(team_name=fixture.away_team),
+                ),
+            )
+        else:
+            home_injuries = InjuryReport(team_name=fixture.home_team)
+            away_injuries = InjuryReport(team_name=fixture.away_team)
+
         return MatchReport(
             fixture=fixture,
             home_form=home_form,
@@ -257,8 +272,8 @@ class BettingOrchestrator:
             home_standing=home_standing,
             away_standing=away_standing,
             head_to_head=h2h,
-            home_injuries=InjuryReport(team_name=fixture.home_team),
-            away_injuries=InjuryReport(team_name=fixture.away_team),
+            home_injuries=home_injuries,
+            away_injuries=away_injuries,
         )
 
     def _merge_stats(self, team_name: str, code: str, form, fbref_map: dict) -> TeamStats:

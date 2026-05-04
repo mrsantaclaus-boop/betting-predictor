@@ -21,7 +21,7 @@ from typing import Optional
 import requests
 from dotenv import load_dotenv
 
-from .models import Fixture, Standing
+from .models import Fixture, Standing, InjuryReport
 
 load_dotenv()
 
@@ -119,6 +119,44 @@ class ApiFootballClient:
         year = season or datetime.now(timezone.utc).year
         data = self._get("standings", {"league": league_id, "season": year})
         return self._parse_standings(data)
+
+    def get_injuries(
+        self,
+        fixture_id: int,
+        home_team_name: str,
+        away_team_name: str,
+    ) -> tuple[InjuryReport, InjuryReport]:
+        """
+        Fetch injury/suspension list for both teams in a fixture.
+
+        Uses the /injuries endpoint filtered by fixture ID.
+        Players with type "Questionable" go to doubtful; all others to unavailable.
+        Returns (home_injuries, away_injuries).
+        """
+        data = self._get("injuries", {"fixture": fixture_id})
+        home_ir = InjuryReport(team_name=home_team_name)
+        away_ir = InjuryReport(team_name=away_team_name)
+
+        home_key = home_team_name.lower()
+        away_key = away_team_name.lower()
+
+        for entry in data.get("response", []):
+            try:
+                player_name = entry["player"]["name"]
+                team_name   = entry["team"]["name"].lower()
+                injury_type = entry.get("injury", {}).get("type", "").lower()
+
+                is_home = home_key in team_name or team_name in home_key
+                ir = home_ir if is_home else away_ir
+
+                if "questionable" in injury_type:
+                    ir.doubtful.append(player_name)
+                else:
+                    ir.unavailable.append(player_name)
+            except (KeyError, TypeError):
+                continue
+
+        return home_ir, away_ir
 
     # ── Parsers ───────────────────────────────────────────────────────────────
 
