@@ -196,6 +196,66 @@ class PoissonResult:
         items.sort(key=lambda x: x[1], reverse=True)
         return items[:n]
 
+    def asian_handicap(self, line: float) -> dict:
+        """
+        Compute Asian Handicap probabilities for a given home team handicap line.
+
+        Positive line  (+1.0): home RECEIVES goals — underdog side.
+        Negative line  (-1.5): home GIVES goals   — favourite side.
+        Zero line      (0.0):  Draw No Bet.
+
+        For integer lines a push is possible (e.g. home wins by exactly |line|).
+        For half-ball lines (±0.5, ±1.5 …) there is no push.
+
+        Returns {"home_win_pct", "push_pct", "away_win_pct"}.
+        """
+        home_win = push = away_win = 0.0
+        for h in range(MAX_GOALS + 1):
+            for a in range(MAX_GOALS + 1):
+                p = self.grid[h][a]
+                adj = (h + line) - a      # adjusted margin (home perspective)
+                if adj > 1e-9:
+                    home_win += p
+                elif abs(adj) < 1e-9:     # integer line: exact push
+                    push += p
+                else:
+                    away_win += p
+        return {
+            "home_win_pct": round(home_win * 100, 1),
+            "push_pct":     round(push     * 100, 1),
+            "away_win_pct": round(away_win * 100, 1),
+        }
+
+    @property
+    def top_ah_lines(self) -> list[dict]:
+        """
+        Return AH probabilities for the 5 most relevant lines given the
+        expected goal spread (lambda_home − lambda_away).
+
+        Lines are chosen so that the mid-line is near the "fair" handicap,
+        giving the user context around both sides of the market.
+        """
+        spread = self.lambda_home - self.lambda_away
+        # Pick centre line: round to nearest 0.5
+        centre = -round(spread * 2) / 2          # e.g. spread=1.3 → centre=-1.5
+        candidates = [centre + 0.5 * i for i in range(-2, 3)]  # 5 lines
+
+        _LABEL = {
+            -3.0: "AH -3",  -2.5: "AH -2.5", -2.0: "AH -2",  -1.5: "AH -1.5",
+            -1.0: "AH -1",  -0.5: "AH -0.5",  0.0: "DNB",
+             0.5: "AH +0.5", 1.0: "AH +1",    1.5: "AH +1.5",  2.0: "AH +2",
+             2.5: "AH +2.5", 3.0: "AH +3",
+        }
+        result = []
+        for line in candidates:
+            ah = self.asian_handicap(line)
+            result.append({
+                "line":  line,
+                "label": _LABEL.get(line, f"AH {line:+.1f}"),
+                **ah,
+            })
+        return result
+
 
 # ── Main entry point ───────────────────────────────────────────────────────────
 
