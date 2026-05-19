@@ -347,11 +347,11 @@ def _is_odds_stale(fetched_at: str | None, warn_hours: int = 12) -> bool:
 
 _MARKET_LABELS: dict[str, str] = {
     "home_win": "Home Win", "draw": "Draw", "away_win": "Away Win",
-    "over_2_5": "Over 2.5", "under_2_5": "Under 2.5",
-    "over_3_5": "Over 3.5", "under_3_5": "Under 3.5",
+    "over_2_5": "Gol Over 2.5", "under_2_5": "Gol Under 2.5",
+    "over_3_5": "Gol Over 3.5", "under_3_5": "Gol Under 3.5",
     "btts_yes": "BTTS Yes", "btts_no": "BTTS No",
-    "over_9_5_corners": "Corners +9.5", "under_9_5_corners": "Corners -9.5",
-    "over_3_5_cards": "Cards +3.5", "under_3_5_cards": "Cards -3.5",
+    "over_9_5_corners": "Corner Over 9.5", "under_9_5_corners": "Corner Under 9.5",
+    "over_3_5_cards": "Cartellini Over 3.5", "under_3_5_cards": "Cartellini Under 3.5",
     "red_card": "Red Card",
 }
 
