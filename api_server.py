@@ -87,7 +87,7 @@ def get_fd() -> FootballDataClient:
     return _fd_client
 
 
-_AF_CODES = {"WC", "WCQA", "WCQC", "WCQAS", "WCQAF"}
+_AF_CODES = {"WC", "WCQA", "WCQC", "WCQAS", "WCQAF", "BSA"}
 
 
 def get_af() -> ApiFootballClient:
@@ -454,9 +454,12 @@ def fixtures():
         return jsonify({"error": str(e)}), 500
 
 
+_ALL_COMP_CODES = {"SA", "SB", "CL", "EL", "ECL", "USC", "WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF", "BSA"}
+
+
 @app.route("/api/standings/<competition_code>")
 def standings(competition_code: str):
-    VALID = {"SA", "CL", "ECL", "WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF"}
+    VALID = _ALL_COMP_CODES
     if competition_code not in VALID:
         return jsonify({"error": f"Unknown competition: {competition_code}"}), 400
 
@@ -478,7 +481,7 @@ def standings(competition_code: str):
 @app.route("/api/odds/<competition_code>")
 def odds_by_competition(competition_code: str):
     """All live odds for a competition."""
-    VALID = {"SA", "CL", "ECL", "WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF"}
+    VALID = _ALL_COMP_CODES
     if competition_code not in VALID:
         return jsonify({"error": f"Unknown competition: {competition_code}"}), 400
     if not os.getenv("ODDS_API_KEY"):
@@ -591,6 +594,7 @@ def predict():
 
         prediction = get_orch().predict_fixture(fixture)
         data = prediction.to_dict()
+        data["competition_code"] = fixture.competition_code  # stored for per-competition analysis
         # Fetch odds first so they are persisted alongside the prediction
         try:
             if os.getenv("ODDS_API_KEY"):
@@ -790,12 +794,29 @@ def edge_stats():
         "red_card":           ("red_card_pct",           "red_card"),
     }
 
-    # Accumulate per-market: list of (implied_pct, did_hit)
-    accum: dict[str, list[tuple[float, bool]]] = {k: [] for k in MARKET_MAP}
+    from collections import defaultdict as _dd
+
+    # comp_code from stored field; fall back to name→code mapping for older records
+    _NAME_TO_CODE = {
+        "Serie A": "SA", "Serie B": "SB", "Champions League": "CL",
+        "UEFA Europa League": "EL", "UEFA Conference League": "ECL",
+        "UEFA Super Cup": "USC", "FIFA World Cup": "WC",
+        "WCQ Europe": "WCQE", "WCQ Americas": "WCQA", "WCQ CONCACAF": "WCQC",
+        "WCQ Asia": "WCQAS", "WCQ Africa": "WCQAF", "Brasileirao Serie A": "BSA",
+    }
+
+    def _comp_code(p: dict) -> str:
+        return (p.get("competition_code")
+                or _NAME_TO_CODE.get(p.get("competition", ""), "?"))
+
+    # Accumulate per-market overall + per-competition
+    accum: dict[str, list] = {k: [] for k in MARKET_MAP}
+    accum_by_comp: dict[str, dict[str, list]] = _dd(lambda: {k: [] for k in MARKET_MAP})
 
     for p in resolved:
         outcomes = p.get("outcomes", {})
         consensus = p.get("live_odds", {}).get("consensus", {})
+        code = _comp_code(p)
 
         for mkt_key, (pred_field, outcome_key) in MARKET_MAP.items():
             did_hit = outcomes.get(outcome_key)
@@ -803,23 +824,16 @@ def edge_stats():
                 continue
             implied = _implied_pct(mkt_key, consensus, p.get(pred_field, 0.0))
             accum[mkt_key].append((implied, did_hit))
+            accum_by_comp[code][mkt_key].append((implied, did_hit))
 
-    result = {}
-    for mkt_key, data_points in accum.items():
+    def _mkt_stats(data_points: list) -> dict:
         n = len(data_points)
         if n == 0:
-            result[mkt_key] = {
-                "implied_pct": None, "actual_pct": None,
-                "edge": None, "sample_size": 0,
-                "calibration_buckets": [],
-            }
-            continue
+            return {"implied_pct": None, "actual_pct": None,
+                    "edge": None, "sample_size": 0, "calibration_buckets": []}
         avg_implied = round(sum(x[0] for x in data_points) / n, 1)
         actual = round(sum(1 for _, hit in data_points if hit) / n * 100, 1)
-
-        # Calibration: group into 10% buckets by implied_pct
-        from collections import defaultdict as _dd
-        buckets: dict[int, list[tuple[float, bool]]] = _dd(list)
+        buckets: dict[int, list] = _dd(list)
         for imp, hit in data_points:
             lo = min(int(imp // 10) * 10, 90)
             buckets[lo].append((imp, hit))
@@ -832,14 +846,120 @@ def edge_stats():
                 "actual_pct": round(sum(1 for _, h in pts if h) / len(pts) * 100, 1),
                 "n":          len(pts),
             })
+        return {"implied_pct": avg_implied, "actual_pct": actual,
+                "edge": round(actual - avg_implied, 1),
+                "sample_size": n, "calibration_buckets": cal_buckets}
 
-        result[mkt_key] = {
-            "implied_pct": avg_implied,
-            "actual_pct":  actual,
-            "edge":        round(actual - avg_implied, 1),
-            "sample_size": n,
-            "calibration_buckets": cal_buckets,
+    result = {}
+    for mkt_key in MARKET_MAP:
+        result[mkt_key] = _mkt_stats(accum[mkt_key])
+
+    # Add per-competition breakdown
+    by_comp: dict[str, dict] = {}
+    for code, mkt_accum in accum_by_comp.items():
+        by_comp[code] = {mkt: _mkt_stats(pts) for mkt, pts in mkt_accum.items()}
+    result["_by_competition"] = by_comp
+
+    return jsonify(result)
+
+
+@app.route("/api/model-calibration")
+def model_calibration():
+    """
+    Per-market calibration curves for three prediction sources:
+      - blend:   main fields (LLM+Poisson blend; pure Poisson for historical records)
+      - llm:     llm_* fields (only predictions run with USE_LLM=true)
+      - poisson: poisson_* fields, falling back to main fields for historical records
+                 where llm_* are all zero (i.e. pre-blend era, Poisson-only)
+
+    X-axis: model's own predicted probability (not bookmaker's implied odds).
+    Y-axis: empirical hit rate within each 10% probability bucket.
+    Also returns Brier score per source (lower = better, 0 = perfect).
+    """
+    resolved = _load_resolved_preds()
+
+    MARKETS = {
+        "home_win": ("home_win_pct",  "llm_home_win_pct", "poisson_home_win_pct", "home_win"),
+        "draw":     ("draw_pct",      "llm_draw_pct",     "poisson_draw_pct",     "draw"),
+        "away_win": ("away_win_pct",  "llm_away_win_pct", "poisson_away_win_pct", "away_win"),
+        "over_2_5": ("over_2_5_pct", "llm_over_2_5_pct", "poisson_over_2_5_pct", "over_2_5"),
+        "btts_yes": ("btts_yes_pct", "llm_btts_yes_pct", "poisson_btts_yes_pct", "btts_yes"),
+    }
+
+    def _stats(pts: list) -> dict | None:
+        if not pts:
+            return None
+        n = len(pts)
+        brier = round(sum((p / 100 - (1 if h else 0)) ** 2 for p, h in pts) / n, 4)
+        from collections import defaultdict
+        buckets: dict[int, list] = defaultdict(list)
+        for p, h in pts:
+            lo = min(int(p // 10) * 10, 90)
+            buckets[lo].append((p, h))
+        cal = []
+        for lo in sorted(buckets):
+            bp = buckets[lo]
+            cal.append({
+                "range":      f"{lo}-{lo+10}%",
+                "pred_avg":   round(sum(x[0] for x in bp) / len(bp), 1),
+                "actual_pct": round(sum(1 for _, h in bp if h) / len(bp) * 100, 1),
+                "n":          len(bp),
+            })
+        return {"calibration_buckets": cal, "brier_score": brier, "sample_size": n}
+
+    from collections import defaultdict as _dd2
+
+    _NAME_TO_CODE2 = {
+        "Serie A": "SA", "Serie B": "SB", "Champions League": "CL",
+        "UEFA Conference League": "ECL", "FIFA World Cup": "WC",
+        "WCQ Europe": "WCQE", "WCQ Americas": "WCQA", "WCQ CONCACAF": "WCQC",
+        "WCQ Asia": "WCQAS", "WCQ Africa": "WCQAF", "Brasileirao Serie A": "BSA",
+    }
+
+    def _pcomp(p: dict) -> str:
+        return (p.get("competition_code")
+                or _NAME_TO_CODE2.get(p.get("competition", ""), "?"))
+
+    # per-market overall + per-competition accumulators
+    # structure: {mkt: {src: [pts]}}  and  {comp: {mkt: {src: [pts]}}}
+    overall: dict[str, dict[str, list]] = {
+        mkt: {"blend": [], "llm": [], "poisson": []} for mkt in MARKETS
+    }
+    by_comp: dict[str, dict[str, dict[str, list]]] = _dd2(
+        lambda: {mkt: {"blend": [], "llm": [], "poisson": []} for mkt in MARKETS}
+    )
+
+    for p in resolved:
+        code = _pcomp(p)
+        for mkt_key, (blend_f, llm_f, poi_f, out_key) in MARKETS.items():
+            did_hit = p.get("outcomes", {}).get(out_key)
+            if did_hit is None:
+                continue
+            blend_pct   = p.get(blend_f, 0.0) or 0.0
+            llm_pct     = p.get(llm_f,   0.0) or 0.0
+            poisson_pct = p.get(poi_f,   0.0) or 0.0
+
+            for store in (overall[mkt_key], by_comp[code][mkt_key]):
+                if blend_pct > 0:
+                    store["blend"].append((blend_pct, did_hit))
+                if llm_pct > 0:
+                    store["llm"].append((llm_pct, did_hit))
+                if poisson_pct > 0:
+                    store["poisson"].append((poisson_pct, did_hit))
+                elif llm_pct == 0 and blend_pct > 0:
+                    store["poisson"].append((blend_pct, did_hit))
+
+    result = {}
+    for mkt_key in MARKETS:
+        result[mkt_key] = {src: _stats(pts) for src, pts in overall[mkt_key].items()}
+
+    result["_by_competition"] = {
+        code: {
+            mkt: {src: _stats(pts) for src, pts in srcs.items()}
+            for mkt, srcs in mkts.items()
         }
+        for code, mkts in by_comp.items()
+    }
 
     return jsonify(result)
 

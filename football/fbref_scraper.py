@@ -37,14 +37,18 @@ _DELAY = 4.0   # seconds between requests (be polite)
 _last_req: float = 0.0
 
 FBREF_COMPETITIONS = {
-    "SA":   {"id": "11",  "slug": "Serie-A"},
-    "CL":   {"id": "8",   "slug": "Champions-League"},
-    "WC":   {"id": "1",   "slug": "World-Cup"},
-    "WCQE": {"id": "680", "slug": "UEFA-World-Cup-Qualifying-UEFA"},
-    "WCQA": {"id": "22",  "slug": "CONMEBOL-World-Cup-Qualifying"},
-    "WCQC": {"id": "30",  "slug": "CONCACAF-World-Cup-Qualifying"},
-    "WCQAS": {"id": "36", "slug": "AFC-Asian-Qualifiers-World-Cup"},
-    "WCQAF": {"id": "46", "slug": "African-World-Cup-Qualifying"},
+    "SA":    {"id": "11",  "slug": "Serie-A"},
+    "SB":    {"id": "18",  "slug": "Serie-B"},
+    "CL":    {"id": "8",   "slug": "Champions-League"},
+    "EL":    {"id": "19",  "slug": "Europa-League"},
+    "WC":    {"id": "1",   "slug": "World-Cup"},
+    "WCQE":  {"id": "680", "slug": "UEFA-World-Cup-Qualifying-UEFA"},
+    "WCQA":  {"id": "22",  "slug": "CONMEBOL-World-Cup-Qualifying"},
+    "WCQC":  {"id": "30",  "slug": "CONCACAF-World-Cup-Qualifying"},
+    "WCQAS": {"id": "36",  "slug": "AFC-Asian-Qualifiers-World-Cup"},
+    "WCQAF": {"id": "46",  "slug": "African-World-Cup-Qualifying"},
+    "BSA":   {"id": "24",  "slug": "Serie-A"},
+    # USC (Super Cup) omitted — one-off match, no season team stats on FBref
 }
 
 

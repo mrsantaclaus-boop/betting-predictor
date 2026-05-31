@@ -20,14 +20,18 @@ from football.models import TeamStats, HeadToHead
 # Empirical average xG per team per game, per competition
 LEAGUE_AVG_XG: dict[str, float] = {
     "SA":    1.35,
+    "SB":    1.25,  # Serie B: slightly lower scoring than Serie A
     "CL":    1.40,
+    "EL":    1.38,  # Europa League: slightly below CL quality
     "ECL":   1.30,
+    "USC":   1.42,  # Super Cup: CL + EL winners, high quality, neutral venue
     "WC":    1.20,
     "WCQE":  1.25,
     "WCQA":  1.30,
     "WCQC":  1.20,
     "WCQAS": 1.15,
     "WCQAF": 1.10,
+    "BSA":   1.45,  # Brasileirao: attacking style, higher scoring
 }
 _DEFAULT_AVG_XG = 1.30
 
@@ -35,14 +39,18 @@ _DEFAULT_AVG_XG = 1.30
 # Derived from historical home/away goals ratios per competition.
 HOME_ADVANTAGE: dict[str, float] = {
     "SA":    1.12,   # Serie A: strong crowd factor
+    "SB":    1.11,   # Serie B: similar to Serie A but slightly lower stakes
     "CL":    1.06,   # CL: competitive away sides, historically flatter
+    "EL":    1.07,   # Europa League: similar to CL
     "ECL":   1.10,
+    "USC":   1.00,   # Super Cup: always neutral venue
     "WC":    1.05,   # Often semi-neutral venues
     "WCQE":  1.12,
     "WCQA":  1.15,   # South America: very strong home factor
     "WCQC":  1.10,
     "WCQAS": 1.08,
     "WCQAF": 1.12,
+    "BSA":   1.16,   # Brasileirao: very strong home factor, passionate crowds
 }
 _DEFAULT_HOME_ADVANTAGE = 1.10
 
@@ -325,14 +333,18 @@ def compute_poisson(
 # Empirical average total corners per game, per competition
 LEAGUE_AVG_CORNERS: dict[str, float] = {
     "SA":    10.5,
+    "SB":    10.2,
     "CL":    10.0,
+    "EL":     9.8,
     "ECL":    9.5,
+    "USC":   10.5,  # Super Cup: high-quality, high-intensity one-off
     "WC":     9.0,
     "WCQE":   9.5,
     "WCQA":   9.0,
     "WCQC":   9.0,
     "WCQAS":  9.0,
     "WCQAF":  8.5,
+    "BSA":   11.0,  # Brasileirao: high attacking intent, many corners
 }
 _DEFAULT_AVG_CORNERS = 10.0
 
@@ -383,14 +395,18 @@ def compute_corner_poisson(
 # Empirical average total yellow cards per game, per competition
 LEAGUE_AVG_CARDS: dict[str, dict[str, float]] = {
     "SA":    {"yellow": 4.4, "red": 0.16},
+    "SB":    {"yellow": 4.8, "red": 0.18},  # Serie B: more physical
     "CL":    {"yellow": 3.6, "red": 0.12},
+    "EL":    {"yellow": 3.8, "red": 0.13},
     "ECL":   {"yellow": 4.0, "red": 0.14},
+    "USC":   {"yellow": 3.4, "red": 0.10},  # Super Cup: prestigious, disciplined
     "WC":    {"yellow": 4.0, "red": 0.16},
     "WCQE":  {"yellow": 4.6, "red": 0.18},
     "WCQA":  {"yellow": 4.8, "red": 0.20},
     "WCQC":  {"yellow": 4.6, "red": 0.18},
     "WCQAS": {"yellow": 4.4, "red": 0.16},
     "WCQAF": {"yellow": 5.0, "red": 0.20},
+    "BSA":   {"yellow": 4.6, "red": 0.20},  # Brasileirao: physical, high red card rate
 }
 _DEFAULT_AVG_CARDS = {"yellow": 4.4, "red": 0.16}
 

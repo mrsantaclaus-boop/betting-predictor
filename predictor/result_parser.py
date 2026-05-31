@@ -67,6 +67,22 @@ class BettingPrediction:
     motivation_context: str = ""
     prediction_summary: str = ""
 
+    # LLM standalone predictions (preserved for display alongside Poisson)
+    llm_home_win_pct: float = 0.0
+    llm_draw_pct: float = 0.0
+    llm_away_win_pct: float = 0.0
+    llm_over_2_5_pct: float = 0.0
+    llm_btts_yes_pct: float = 0.0
+    llm_most_likely_scoreline: str = ""
+    llm_analysis: str = ""
+
+    # Poisson-only predictions (pre-blend, stored for model comparison tracking)
+    poisson_home_win_pct: float = 0.0
+    poisson_draw_pct: float = 0.0
+    poisson_away_win_pct: float = 0.0
+    poisson_over_2_5_pct: float = 0.0
+    poisson_btts_yes_pct: float = 0.0
+
     # Meta
     raw_report: str = ""
     parse_source: str = "json"  # "json" | "text_inference" | "fallback"
