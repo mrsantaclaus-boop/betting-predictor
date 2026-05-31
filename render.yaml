@@ -26,6 +26,10 @@ services:
       - key: FOOTBALL_DATA_API_KEY
         sync: false
 
+      # ── API-Football (WCQ + Brasileirao) ────────────────────────────────────
+      - key: API_FOOTBALL_KEY
+        sync: false
+
       # ── Odds API ────────────────────────────────────────────────────────────
       - key: ODDS_API_KEY
         sync: false
