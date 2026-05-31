@@ -34,10 +34,22 @@ from predictor.shrinkage import apply_shrinkage
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-# Set USE_LLM=true in the environment to re-enable the LLM call.
-# Default is False: predictions run purely from Poisson + statistical models,
-# which is faster and more reliable for all numeric markets.
-_USE_LLM = os.getenv("USE_LLM", "false").lower() == "true"
+# MiroFish (LLM) runs by default alongside Poisson and results are blended.
+# Set USE_LLM=false to disable and run Poisson-only (faster, no API key needed).
+_USE_LLM = os.getenv("USE_LLM", "true").lower() == "true"
+
+# Blend weights: how much the LLM contributes vs Poisson (0.0 = Poisson only, 1.0 = LLM only).
+# Only applied when the LLM produces a non-zero value for that market.
+_LLM_WEIGHT_1X2   = float(os.getenv("LLM_WEIGHT_1X2",   "0.40"))
+_LLM_WEIGHT_GOALS = float(os.getenv("LLM_WEIGHT_GOALS",  "0.35"))
+_LLM_WEIGHT_BTTS  = float(os.getenv("LLM_WEIGHT_BTTS",   "0.40"))
+
+
+def _blend(llm_val: float, poisson_val: float, llm_weight: float) -> float:
+    """Weighted average; falls back to Poisson when the LLM has no value."""
+    if llm_val <= 0:
+        return poisson_val
+    return round(llm_val * llm_weight + poisson_val * (1.0 - llm_weight), 1)
 
 
 class BettingOrchestrator:
@@ -94,7 +106,11 @@ class BettingOrchestrator:
         self._validate_fbref_stats(report.home_stats)
         self._validate_fbref_stats(report.away_stats)
 
-        # ── LLM path (optional) ───────────────────────────────────────────────
+        # ── LLM analysis (MiroFish) ───────────────────────────────────────────
+        prediction = BettingPrediction()
+        prediction.match = match_label
+        prediction.competition = fixture.competition
+
         if _USE_LLM:
             seed_text, pred_prompt = build_seed_document(report)
             result = self.mf_client.run_match_prediction(
@@ -103,16 +119,22 @@ class BettingOrchestrator:
                 match_label=match_label,
                 simulation_rounds=10,
             )
-            if result["status"] != "success":
-                raise RuntimeError(f"MiroFish pipeline failed: {result.get('error')}")
-            prediction = self.parser.parse(result["report_markdown"])
-            logger.info("LLM prediction parsed (source: %s)", prediction.parse_source)
+            if result["status"] == "success":
+                llm_pred = self.parser.parse(result["report_markdown"])
+                logger.info("LLM prediction parsed (source: %s)", llm_pred.parse_source)
+                if llm_pred.parse_source != "fallback":
+                    prediction.llm_home_win_pct       = llm_pred.home_win_pct
+                    prediction.llm_draw_pct            = llm_pred.draw_pct
+                    prediction.llm_away_win_pct        = llm_pred.away_win_pct
+                    prediction.llm_over_2_5_pct        = llm_pred.over_2_5_pct
+                    prediction.llm_btts_yes_pct        = llm_pred.btts_yes_pct
+                    prediction.llm_most_likely_scoreline = llm_pred.most_likely_scoreline
+                    prediction.llm_analysis            = result["report_markdown"]
+                    prediction.raw_report              = result["report_markdown"]
+            else:
+                logger.warning("MiroFish failed: %s — continuing with Poisson-only", result.get("error"))
         else:
             logger.info("LLM skipped (USE_LLM=false) — using Poisson-only pipeline")
-            prediction = BettingPrediction()
-
-        prediction.match = match_label
-        prediction.competition = fixture.competition
 
         # ── 5. Poisson goals model ────────────────────────────────────────────
         try:
@@ -123,28 +145,54 @@ class BettingOrchestrator:
                 head_to_head=report.head_to_head,
                 is_neutral=fixture.is_neutral,
             )
+            has_llm = prediction.llm_home_win_pct > 0 or prediction.llm_draw_pct > 0
+
+            # Scoreline and lambdas always come from Poisson (most precise)
             prediction.most_likely_scoreline  = poisson.most_likely_scoreline
             prediction.poisson_lambda_home    = poisson.lambda_home
             prediction.poisson_lambda_away    = poisson.lambda_away
             prediction.poisson_top_scorelines = poisson.top_scorelines(8)
-            prediction.home_win_pct   = poisson.home_win_pct
-            prediction.draw_pct       = poisson.draw_pct
-            prediction.away_win_pct   = poisson.away_win_pct
-            prediction.over_2_5_pct   = poisson.over_2_5_pct
-            prediction.under_2_5_pct  = poisson.under_2_5_pct
-            prediction.over_3_5_pct   = poisson.over_3_5_pct
-            prediction.under_3_5_pct  = poisson.under_3_5_pct
-            prediction.btts_yes_pct   = poisson.btts_yes_pct
-            prediction.btts_no_pct    = poisson.btts_no_pct
-            prediction.confidence     = self._poisson_confidence(
+
+            # 1X2 — blend LLM + Poisson when LLM is available
+            if has_llm:
+                prediction.home_win_pct = _blend(prediction.llm_home_win_pct, poisson.home_win_pct, _LLM_WEIGHT_1X2)
+                prediction.draw_pct     = _blend(prediction.llm_draw_pct,     poisson.draw_pct,     _LLM_WEIGHT_1X2)
+                prediction.away_win_pct = round(100.0 - prediction.home_win_pct - prediction.draw_pct, 1)
+            else:
+                prediction.home_win_pct = poisson.home_win_pct
+                prediction.draw_pct     = poisson.draw_pct
+                prediction.away_win_pct = poisson.away_win_pct
+
+            # Goals markets
+            if has_llm:
+                prediction.over_2_5_pct  = _blend(prediction.llm_over_2_5_pct, poisson.over_2_5_pct, _LLM_WEIGHT_GOALS)
+                prediction.under_2_5_pct = round(100.0 - prediction.over_2_5_pct, 1)
+            else:
+                prediction.over_2_5_pct  = poisson.over_2_5_pct
+                prediction.under_2_5_pct = poisson.under_2_5_pct
+
+            # Over/Under 3.5 — Poisson only (LLM rarely predicts this sub-market)
+            prediction.over_3_5_pct  = poisson.over_3_5_pct
+            prediction.under_3_5_pct = poisson.under_3_5_pct
+
+            # BTTS
+            if has_llm:
+                prediction.btts_yes_pct = _blend(prediction.llm_btts_yes_pct, poisson.btts_yes_pct, _LLM_WEIGHT_BTTS)
+                prediction.btts_no_pct  = round(100.0 - prediction.btts_yes_pct, 1)
+            else:
+                prediction.btts_yes_pct = poisson.btts_yes_pct
+                prediction.btts_no_pct  = poisson.btts_no_pct
+
+            prediction.confidence = self._poisson_confidence(
                 poisson, report.home_stats, report.away_stats, report.head_to_head
             )
             logger.info(
                 "Poisson goals: λ_home=%.2f λ_away=%.2f → %s "
-                "(1X2: %.1f/%.1f/%.1f, O2.5: %.1f%%, O3.5: %.1f%%, BTTS: %.1f%%)",
+                "(1X2: %.1f/%.1f/%.1f, O2.5: %.1f%%, O3.5: %.1f%%, BTTS: %.1f%%) [llm_blend=%s]",
                 poisson.lambda_home, poisson.lambda_away, poisson.most_likely_scoreline,
-                poisson.home_win_pct, poisson.draw_pct, poisson.away_win_pct,
-                poisson.over_2_5_pct, poisson.over_3_5_pct, poisson.btts_yes_pct,
+                prediction.home_win_pct, prediction.draw_pct, prediction.away_win_pct,
+                prediction.over_2_5_pct, poisson.over_3_5_pct, prediction.btts_yes_pct,
+                "yes" if has_llm else "no",
             )
         except Exception as e:
             logger.warning("Poisson goals model failed (non-fatal): %s", e)
