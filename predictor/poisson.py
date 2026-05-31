@@ -22,7 +22,9 @@ LEAGUE_AVG_XG: dict[str, float] = {
     "SA":    1.35,
     "SB":    1.25,  # Serie B: slightly lower scoring than Serie A
     "CL":    1.40,
+    "EL":    1.38,  # Europa League: slightly below CL quality
     "ECL":   1.30,
+    "USC":   1.42,  # Super Cup: CL + EL winners, high quality, neutral venue
     "WC":    1.20,
     "WCQE":  1.25,
     "WCQA":  1.30,
@@ -39,7 +41,9 @@ HOME_ADVANTAGE: dict[str, float] = {
     "SA":    1.12,   # Serie A: strong crowd factor
     "SB":    1.11,   # Serie B: similar to Serie A but slightly lower stakes
     "CL":    1.06,   # CL: competitive away sides, historically flatter
+    "EL":    1.07,   # Europa League: similar to CL
     "ECL":   1.10,
+    "USC":   1.00,   # Super Cup: always neutral venue
     "WC":    1.05,   # Often semi-neutral venues
     "WCQE":  1.12,
     "WCQA":  1.15,   # South America: very strong home factor
@@ -331,7 +335,9 @@ LEAGUE_AVG_CORNERS: dict[str, float] = {
     "SA":    10.5,
     "SB":    10.2,
     "CL":    10.0,
+    "EL":     9.8,
     "ECL":    9.5,
+    "USC":   10.5,  # Super Cup: high-quality, high-intensity one-off
     "WC":     9.0,
     "WCQE":   9.5,
     "WCQA":   9.0,
@@ -391,7 +397,9 @@ LEAGUE_AVG_CARDS: dict[str, dict[str, float]] = {
     "SA":    {"yellow": 4.4, "red": 0.16},
     "SB":    {"yellow": 4.8, "red": 0.18},  # Serie B: more physical
     "CL":    {"yellow": 3.6, "red": 0.12},
+    "EL":    {"yellow": 3.8, "red": 0.13},
     "ECL":   {"yellow": 4.0, "red": 0.14},
+    "USC":   {"yellow": 3.4, "red": 0.10},  # Super Cup: prestigious, disciplined
     "WC":    {"yellow": 4.0, "red": 0.16},
     "WCQE":  {"yellow": 4.6, "red": 0.18},
     "WCQA":  {"yellow": 4.8, "red": 0.20},

@@ -56,7 +56,7 @@ class BettingOrchestrator:
     """Coordinates the full data → prediction pipeline."""
 
     # Competitions served by ApiFootballClient instead of football-data.org
-    _API_FOOTBALL_CODES = {"WC", "WCQA", "WCQC", "WCQAS", "WCQAF"}
+    _API_FOOTBALL_CODES = {"WC", "WCQA", "WCQC", "WCQAS", "WCQAF", "BSA"}
     _ESPN_CODES = {"ECL"}
 
     def __init__(self):
@@ -268,7 +268,7 @@ class BettingOrchestrator:
     def get_upcoming_fixtures(self) -> list[Fixture]:
         """Return all upcoming fixtures across all supported competitions."""
         fixtures = []
-        for code in ("SA", "SB", "CL", "ECL", "WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF", "BSA"):
+        for code in ("SA", "SB", "CL", "EL", "ECL", "USC", "WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF", "BSA"):
             try:
                 if code in self._ESPN_CODES:
                     upcoming = self.espn_client.get_upcoming_fixtures(code, days_ahead=14)

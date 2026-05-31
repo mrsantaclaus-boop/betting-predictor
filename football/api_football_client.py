@@ -30,14 +30,15 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://v3.football.api-sports.io"
 
 # Competition code → (league_id, competition_name)
-# IDs are for the 2026 World Cup qualifying cycle
 WCQ_LEAGUES: dict[str, tuple[int, str]] = {
-    "WC":    (1,  "FIFA World Cup"),
-    "WCQE":  (32, "WCQ Europe"),
+    "WC":    (1,   "FIFA World Cup"),
+    "WCQE":  (32,  "WCQ Europe"),
     "WCQA":  (34,  "WCQ Americas"),
     "WCQC":  (30,  "WCQ CONCACAF"),
     "WCQAS": (36,  "WCQ Asia"),
     "WCQAF": (29,  "WCQ Africa"),
+    # Brasileirao not on football-data.org free tier → use api-football.com
+    "BSA":   (71,  "Brasileirao Serie A"),
 }
 
 # Status short codes → our canonical status

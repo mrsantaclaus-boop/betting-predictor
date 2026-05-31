@@ -111,6 +111,19 @@ class SeedGenerator:
                 "**FIFA World Cup** is the most prestigious international football tournament. "
                 "National teams compete for the world championship every four years."
             )
+        elif f.competition_code == "EL":
+            comp_desc = (
+                "**UEFA Europa League** is UEFA's second-tier club competition. "
+                "It features clubs from across Europe who did not qualify for the Champions League "
+                "or were eliminated from it. The competition runs from the group stage through to a final."
+            )
+        elif f.competition_code == "USC":
+            comp_desc = (
+                "**UEFA Super Cup** is the season-opening match between the UEFA Champions League "
+                "winner and the UEFA Europa League winner, played at a neutral venue. "
+                "It is a single match with no away goals or second legs — the winner is decided "
+                "on the day, with extra time and penalties if necessary."
+            )
         elif f.competition_code == "SB":
             comp_desc = (
                 "**Serie B** is Italy's second professional football league, featuring 20 clubs "
@@ -251,14 +264,14 @@ class SeedGenerator:
         f = report.fixture
 
         LEAGUE_CORNERS_PG = {
-            "SA": 5.1, "SB": 5.1, "CL": 4.8, "ECL": 4.6,
-            "WC": 4.4, "WCQE": 4.5, "WCQA": 4.3,
+            "SA": 5.1, "SB": 5.1, "CL": 4.8, "EL": 4.9, "ECL": 4.6,
+            "USC": 5.2, "WC": 4.4, "WCQE": 4.5, "WCQA": 4.3,
             "WCQC": 4.2, "WCQAS": 4.2, "WCQAF": 4.0,
             "BSA": 5.5,
         }
         LEAGUE_CARDS_PG = {
-            "SA": 2.2, "SB": 2.4, "CL": 1.8, "ECL": 2.0,
-            "WC": 2.0, "WCQE": 2.3, "WCQA": 2.4,
+            "SA": 2.2, "SB": 2.4, "CL": 1.8, "EL": 1.9, "ECL": 2.0,
+            "USC": 1.7, "WC": 2.0, "WCQE": 2.3, "WCQA": 2.4,
             "WCQC": 2.3, "WCQAS": 2.2, "WCQAF": 2.5,
             "BSA": 2.3,
         }

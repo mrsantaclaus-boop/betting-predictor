@@ -87,7 +87,7 @@ def get_fd() -> FootballDataClient:
     return _fd_client
 
 
-_AF_CODES = {"WC", "WCQA", "WCQC", "WCQAS", "WCQAF"}
+_AF_CODES = {"WC", "WCQA", "WCQC", "WCQAS", "WCQAF", "BSA"}
 
 
 def get_af() -> ApiFootballClient:
@@ -454,7 +454,7 @@ def fixtures():
         return jsonify({"error": str(e)}), 500
 
 
-_ALL_COMP_CODES = {"SA", "SB", "CL", "ECL", "WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF", "BSA"}
+_ALL_COMP_CODES = {"SA", "SB", "CL", "EL", "ECL", "USC", "WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF", "BSA"}
 
 
 @app.route("/api/standings/<competition_code>")
@@ -799,7 +799,8 @@ def edge_stats():
     # comp_code from stored field; fall back to name→code mapping for older records
     _NAME_TO_CODE = {
         "Serie A": "SA", "Serie B": "SB", "Champions League": "CL",
-        "UEFA Conference League": "ECL", "FIFA World Cup": "WC",
+        "UEFA Europa League": "EL", "UEFA Conference League": "ECL",
+        "UEFA Super Cup": "USC", "FIFA World Cup": "WC",
         "WCQ Europe": "WCQE", "WCQ Americas": "WCQA", "WCQ CONCACAF": "WCQC",
         "WCQ Asia": "WCQAS", "WCQ Africa": "WCQAF", "Brasileirao Serie A": "BSA",
     }
