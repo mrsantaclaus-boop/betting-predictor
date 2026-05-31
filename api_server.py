@@ -844,6 +844,80 @@ def edge_stats():
     return jsonify(result)
 
 
+@app.route("/api/model-calibration")
+def model_calibration():
+    """
+    Per-market calibration curves for three prediction sources:
+      - blend:   main fields (LLM+Poisson blend; pure Poisson for historical records)
+      - llm:     llm_* fields (only predictions run with USE_LLM=true)
+      - poisson: poisson_* fields, falling back to main fields for historical records
+                 where llm_* are all zero (i.e. pre-blend era, Poisson-only)
+
+    X-axis: model's own predicted probability (not bookmaker's implied odds).
+    Y-axis: empirical hit rate within each 10% probability bucket.
+    Also returns Brier score per source (lower = better, 0 = perfect).
+    """
+    resolved = _load_resolved_preds()
+
+    MARKETS = {
+        "home_win": ("home_win_pct",  "llm_home_win_pct", "poisson_home_win_pct", "home_win"),
+        "draw":     ("draw_pct",      "llm_draw_pct",     "poisson_draw_pct",     "draw"),
+        "away_win": ("away_win_pct",  "llm_away_win_pct", "poisson_away_win_pct", "away_win"),
+        "over_2_5": ("over_2_5_pct", "llm_over_2_5_pct", "poisson_over_2_5_pct", "over_2_5"),
+        "btts_yes": ("btts_yes_pct", "llm_btts_yes_pct", "poisson_btts_yes_pct", "btts_yes"),
+    }
+
+    def _stats(pts: list) -> dict | None:
+        if not pts:
+            return None
+        n = len(pts)
+        brier = round(sum((p / 100 - (1 if h else 0)) ** 2 for p, h in pts) / n, 4)
+        from collections import defaultdict
+        buckets: dict[int, list] = defaultdict(list)
+        for p, h in pts:
+            lo = min(int(p // 10) * 10, 90)
+            buckets[lo].append((p, h))
+        cal = []
+        for lo in sorted(buckets):
+            bp = buckets[lo]
+            cal.append({
+                "range":      f"{lo}-{lo+10}%",
+                "pred_avg":   round(sum(x[0] for x in bp) / len(bp), 1),
+                "actual_pct": round(sum(1 for _, h in bp if h) / len(bp) * 100, 1),
+                "n":          len(bp),
+            })
+        return {"calibration_buckets": cal, "brier_score": brier, "sample_size": n}
+
+    result = {}
+    for mkt_key, (blend_f, llm_f, poi_f, out_key) in MARKETS.items():
+        blend_pts, llm_pts, poi_pts = [], [], []
+        for p in resolved:
+            did_hit = p.get("outcomes", {}).get(out_key)
+            if did_hit is None:
+                continue
+            blend_pct   = p.get(blend_f, 0.0) or 0.0
+            llm_pct     = p.get(llm_f,   0.0) or 0.0
+            poisson_pct = p.get(poi_f,   0.0) or 0.0
+
+            if blend_pct > 0:
+                blend_pts.append((blend_pct, did_hit))
+            if llm_pct > 0:
+                llm_pts.append((llm_pct, did_hit))
+            if poisson_pct > 0:
+                poi_pts.append((poisson_pct, did_hit))
+            elif llm_pct == 0 and blend_pct > 0:
+                # Historical prediction: main field was Poisson-only (USE_LLM was false)
+                poi_pts.append((blend_pct, did_hit))
+
+        result[mkt_key] = {
+            "blend":   _stats(blend_pts),
+            "llm":     _stats(llm_pts),
+            "poisson": _stats(poi_pts),
+        }
+
+    return jsonify(result)
+
+
 @app.route("/api/cache/clear", methods=["POST"])
 def clear_cache():
     """Force-refresh all cached data."""

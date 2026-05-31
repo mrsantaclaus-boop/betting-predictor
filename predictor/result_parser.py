@@ -76,6 +76,13 @@ class BettingPrediction:
     llm_most_likely_scoreline: str = ""
     llm_analysis: str = ""
 
+    # Poisson-only predictions (pre-blend, stored for model comparison tracking)
+    poisson_home_win_pct: float = 0.0
+    poisson_draw_pct: float = 0.0
+    poisson_away_win_pct: float = 0.0
+    poisson_over_2_5_pct: float = 0.0
+    poisson_btts_yes_pct: float = 0.0
+
     # Meta
     raw_report: str = ""
     parse_source: str = "json"  # "json" | "text_inference" | "fallback"

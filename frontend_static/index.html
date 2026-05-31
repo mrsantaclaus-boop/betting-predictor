@@ -449,6 +449,61 @@
         </div>
         <div v-else class="dim" style="font-size:.82rem;padding:8px 0">No data for this market yet.</div>
       </div>
+
+      <!-- Model Comparison -->
+      <div style="margin-top:32px" v-if="modelCalibData">
+        <div class="sec-title">🔬 Model Comparison
+          <span class="dim" style="font-size:.75rem;margin-left:4px">model probability vs actual hit rate — Brier score (lower = better)</span>
+        </div>
+        <!-- Market selector -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+          <button v-for="mkt in modelCalibMkts" :key="mkt"
+            :class="['chip', {active: modelCalibMkt===mkt}]"
+            @click="modelCalibMkt=mkt">{{ mktLabel(mkt) }}</button>
+        </div>
+        <div v-if="modelCalibMktData">
+          <!-- Brier score cards -->
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+            <div v-for="src in ['blend','llm','poisson']" :key="src"
+              v-if="modelCalibMktData[src]"
+              style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 16px;min-width:120px">
+              <div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:3px">
+                {{ src==='blend' ? '⚡ Blend' : src==='llm' ? '🤖 LLM' : '📐 Poisson' }}
+              </div>
+              <div style="font-size:1.1rem;font-weight:700;color:#e6edf3">{{ modelCalibMktData[src].brier_score }}</div>
+              <div style="font-size:.66rem;color:#8b949e">N={{ modelCalibMktData[src].sample_size }}</div>
+            </div>
+            <div v-if="!modelCalibMktData.llm" style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 16px;min-width:120px;opacity:.45">
+              <div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:3px">🤖 LLM</div>
+              <div style="font-size:.78rem;color:#484f58">Nessuna predizione LLM ancora</div>
+            </div>
+          </div>
+          <!-- Source selector + calibration table -->
+          <div style="display:flex;gap:6px;margin-bottom:10px">
+            <button v-for="src in availableModelCalibSrcs" :key="src"
+              :class="['chip', {active: modelCalibSrc===src}]"
+              @click="modelCalibSrc=src">
+              {{ src==='blend' ? '⚡ Blend' : src==='llm' ? '🤖 LLM' : '📐 Poisson' }}
+            </button>
+          </div>
+          <div v-if="modelCalibBuckets.length">
+            <table class="tbl">
+              <thead>
+                <tr><th style="text-align:left">Range</th><th>Pred avg</th><th>Actual hit %</th><th>N</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="b in modelCalibBuckets" :key="b.range">
+                  <td style="text-align:left">{{ b.range }}</td>
+                  <td>{{ b.pred_avg }}%</td>
+                  <td :class="b.actual_pct >= b.pred_avg ? 'pos' : 'neg'">{{ b.actual_pct }}%</td>
+                  <td>{{ b.n }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="dim" style="font-size:.82rem;padding:8px 0">Nessun dato per questa sorgente ancora.</div>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -809,6 +864,7 @@ createApp({
         const r = await fetch(`${API}/edge`)
         if (r.ok) edgeData.value = await r.json()
       } catch {} finally { loadingEdge.value = false }
+      loadModelCalib()
     }
 
     async function loadValueBets() {
@@ -831,6 +887,42 @@ createApp({
       if (!edgeData.value || !edgeData.value[calibMkt.value]) return []
       return edgeData.value[calibMkt.value].calibration_buckets || []
     })
+
+    const modelCalibData = ref(null)
+    const loadingModelCalib = ref(false)
+    const modelCalibMkt = ref('home_win')
+    const modelCalibSrc = ref('blend')
+
+    const modelCalibMkts = computed(() => {
+      if (!modelCalibData.value) return []
+      return Object.keys(modelCalibData.value).filter(k => {
+        const d = modelCalibData.value[k]
+        return d && (d.blend || d.llm || d.poisson)
+      })
+    })
+
+    const modelCalibMktData = computed(() => {
+      if (!modelCalibData.value) return null
+      return modelCalibData.value[modelCalibMkt.value] || null
+    })
+
+    const availableModelCalibSrcs = computed(() => {
+      if (!modelCalibMktData.value) return []
+      return ['blend', 'llm', 'poisson'].filter(s => modelCalibMktData.value[s])
+    })
+
+    const modelCalibBuckets = computed(() => {
+      if (!modelCalibMktData.value) return []
+      return modelCalibMktData.value[modelCalibSrc.value]?.calibration_buckets || []
+    })
+
+    async function loadModelCalib() {
+      loadingModelCalib.value = true
+      try {
+        const r = await fetch(`${API}/model-calibration`)
+        if (r.ok) modelCalibData.value = await r.json()
+      } catch {} finally { loadingModelCalib.value = false }
+    }
 
     function compCodeFromLabel(comp) {
       if (!comp) return 'cl'
@@ -887,6 +979,8 @@ createApp({
       loadingOdds, activeNews, loadingNews, quickOdds, standings, loadingStand,
       standComp, activePred, edgeData, loadingEdge, syncing, resolvedCount, unresolvedCount,
       valueBets, loadingValue, calibMkt, calibMkts, calibBuckets,
+      modelCalibData, modelCalibMkt, modelCalibSrc, modelCalibMkts, modelCalibMktData,
+      availableModelCalibSrcs, modelCalibBuckets,
       loadFixtures, loadStandings, openFixture, runPred, loadEdge, syncResults, loadValueBets,
       hasPred, hasValueMarket, mktLabel, fmt, fmtShort, compClass, compCodeFromLabel,
       mkts, resultLabel, resultPct, compBadgeLabel

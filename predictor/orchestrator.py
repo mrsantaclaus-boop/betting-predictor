@@ -153,6 +153,13 @@ class BettingOrchestrator:
             prediction.poisson_lambda_away    = poisson.lambda_away
             prediction.poisson_top_scorelines = poisson.top_scorelines(8)
 
+            # Store raw Poisson-only values for model comparison tracking
+            prediction.poisson_home_win_pct  = poisson.home_win_pct
+            prediction.poisson_draw_pct      = poisson.draw_pct
+            prediction.poisson_away_win_pct  = poisson.away_win_pct
+            prediction.poisson_over_2_5_pct  = poisson.over_2_5_pct
+            prediction.poisson_btts_yes_pct  = poisson.btts_yes_pct
+
             # 1X2 — blend LLM + Poisson when LLM is available
             if has_llm:
                 prediction.home_win_pct = _blend(prediction.llm_home_win_pct, poisson.home_win_pct, _LLM_WEIGHT_1X2)
