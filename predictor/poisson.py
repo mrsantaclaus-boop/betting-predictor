@@ -20,6 +20,7 @@ from football.models import TeamStats, HeadToHead
 # Empirical average xG per team per game, per competition
 LEAGUE_AVG_XG: dict[str, float] = {
     "SA":    1.35,
+    "SB":    1.25,  # Serie B: slightly lower scoring than Serie A
     "CL":    1.40,
     "ECL":   1.30,
     "WC":    1.20,
@@ -28,6 +29,7 @@ LEAGUE_AVG_XG: dict[str, float] = {
     "WCQC":  1.20,
     "WCQAS": 1.15,
     "WCQAF": 1.10,
+    "BSA":   1.45,  # Brasileirao: attacking style, higher scoring
 }
 _DEFAULT_AVG_XG = 1.30
 
@@ -35,6 +37,7 @@ _DEFAULT_AVG_XG = 1.30
 # Derived from historical home/away goals ratios per competition.
 HOME_ADVANTAGE: dict[str, float] = {
     "SA":    1.12,   # Serie A: strong crowd factor
+    "SB":    1.11,   # Serie B: similar to Serie A but slightly lower stakes
     "CL":    1.06,   # CL: competitive away sides, historically flatter
     "ECL":   1.10,
     "WC":    1.05,   # Often semi-neutral venues
@@ -43,6 +46,7 @@ HOME_ADVANTAGE: dict[str, float] = {
     "WCQC":  1.10,
     "WCQAS": 1.08,
     "WCQAF": 1.12,
+    "BSA":   1.16,   # Brasileirao: very strong home factor, passionate crowds
 }
 _DEFAULT_HOME_ADVANTAGE = 1.10
 
@@ -325,6 +329,7 @@ def compute_poisson(
 # Empirical average total corners per game, per competition
 LEAGUE_AVG_CORNERS: dict[str, float] = {
     "SA":    10.5,
+    "SB":    10.2,
     "CL":    10.0,
     "ECL":    9.5,
     "WC":     9.0,
@@ -333,6 +338,7 @@ LEAGUE_AVG_CORNERS: dict[str, float] = {
     "WCQC":   9.0,
     "WCQAS":  9.0,
     "WCQAF":  8.5,
+    "BSA":   11.0,  # Brasileirao: high attacking intent, many corners
 }
 _DEFAULT_AVG_CORNERS = 10.0
 
@@ -383,6 +389,7 @@ def compute_corner_poisson(
 # Empirical average total yellow cards per game, per competition
 LEAGUE_AVG_CARDS: dict[str, dict[str, float]] = {
     "SA":    {"yellow": 4.4, "red": 0.16},
+    "SB":    {"yellow": 4.8, "red": 0.18},  # Serie B: more physical
     "CL":    {"yellow": 3.6, "red": 0.12},
     "ECL":   {"yellow": 4.0, "red": 0.14},
     "WC":    {"yellow": 4.0, "red": 0.16},
@@ -391,6 +398,7 @@ LEAGUE_AVG_CARDS: dict[str, dict[str, float]] = {
     "WCQC":  {"yellow": 4.6, "red": 0.18},
     "WCQAS": {"yellow": 4.4, "red": 0.16},
     "WCQAF": {"yellow": 5.0, "red": 0.20},
+    "BSA":   {"yellow": 4.6, "red": 0.20},  # Brasileirao: physical, high red card rate
 }
 _DEFAULT_AVG_CARDS = {"yellow": 4.4, "red": 0.16}
 

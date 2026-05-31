@@ -28,15 +28,17 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.football-data.org/v4"
 COMPETITIONS = {
-    "SA":   "Serie A",
-    "CL":   "Champions League",
-    "ECL":  "UEFA Conference League",
-    "WC":   "FIFA World Cup",
-    "WCQE": "WCQ Europe",
-    "WCQA": "WCQ Americas",
-    "WCQC": "WCQ CONCACAF",
+    "SA":    "Serie A",
+    "SB":    "Serie B",
+    "CL":    "Champions League",
+    "ECL":   "UEFA Conference League",
+    "WC":    "FIFA World Cup",
+    "WCQE":  "WCQ Europe",
+    "WCQA":  "WCQ Americas",
+    "WCQC":  "WCQ CONCACAF",
     "WCQAS": "WCQ Asia",
     "WCQAF": "WCQ Africa",
+    "BSA":   "Brasileirao Serie A",
 }
 
 # Polite rate limit — free tier allows 10 req/min

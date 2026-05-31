@@ -19,6 +19,8 @@ SHRINKAGE_WEIGHT = 8  # equivalent to 8 games worth of prior evidence
 LEAGUE_AVERAGES: dict[str, dict[str, float]] = {
     "SA":    {"goals_scored_pg": 1.35, "goals_conceded_pg": 1.35, "xg_pg": 1.35,
               "xga_pg": 1.35, "corners_pg": 5.1, "yellow_cards_pg": 2.2, "red_cards_pg": 0.08},
+    "SB":    {"goals_scored_pg": 1.25, "goals_conceded_pg": 1.25, "xg_pg": 1.25,
+              "xga_pg": 1.25, "corners_pg": 5.1, "yellow_cards_pg": 2.4, "red_cards_pg": 0.09},
     "CL":    {"goals_scored_pg": 1.40, "goals_conceded_pg": 1.40, "xg_pg": 1.40,
               "xga_pg": 1.40, "corners_pg": 4.8, "yellow_cards_pg": 1.8, "red_cards_pg": 0.06},
     "ECL":   {"goals_scored_pg": 1.30, "goals_conceded_pg": 1.30, "xg_pg": 1.30,
@@ -35,6 +37,8 @@ LEAGUE_AVERAGES: dict[str, dict[str, float]] = {
               "xga_pg": 1.15, "corners_pg": 4.2, "yellow_cards_pg": 2.2, "red_cards_pg": 0.08},
     "WCQAF": {"goals_scored_pg": 1.10, "goals_conceded_pg": 1.10, "xg_pg": 1.10,
               "xga_pg": 1.10, "corners_pg": 4.0, "yellow_cards_pg": 2.5, "red_cards_pg": 0.10},
+    "BSA":   {"goals_scored_pg": 1.45, "goals_conceded_pg": 1.45, "xg_pg": 1.45,
+              "xga_pg": 1.45, "corners_pg": 5.5, "yellow_cards_pg": 2.3, "red_cards_pg": 0.10},
 }
 _DEFAULT_AVERAGES = LEAGUE_AVERAGES["SA"]
 

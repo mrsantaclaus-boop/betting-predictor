@@ -111,6 +111,18 @@ class SeedGenerator:
                 "**FIFA World Cup** is the most prestigious international football tournament. "
                 "National teams compete for the world championship every four years."
             )
+        elif f.competition_code == "SB":
+            comp_desc = (
+                "**Serie B** is Italy's second professional football league, featuring 20 clubs "
+                "competing for promotion to Serie A. The top 2 are promoted automatically; "
+                "places 3-8 enter a play-off. The bottom 3 are relegated to Serie C."
+            )
+        elif f.competition_code == "BSA":
+            comp_desc = (
+                "**Brasileirao Serie A** is Brazil's top professional football league, featuring "
+                "20 clubs. Matches are often high-scoring with a very strong home advantage driven "
+                "by passionate crowds. The bottom 4 are relegated to Serie B."
+            )
         elif f.competition_code in ("WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF"):
             region_map = {
                 "WCQE": "European", "WCQA": "South American",
@@ -239,14 +251,16 @@ class SeedGenerator:
         f = report.fixture
 
         LEAGUE_CORNERS_PG = {
-            "SA": 5.1, "CL": 4.8, "ECL": 4.6,
+            "SA": 5.1, "SB": 5.1, "CL": 4.8, "ECL": 4.6,
             "WC": 4.4, "WCQE": 4.5, "WCQA": 4.3,
             "WCQC": 4.2, "WCQAS": 4.2, "WCQAF": 4.0,
+            "BSA": 5.5,
         }
         LEAGUE_CARDS_PG = {
-            "SA": 2.2, "CL": 1.8, "ECL": 2.0,
+            "SA": 2.2, "SB": 2.4, "CL": 1.8, "ECL": 2.0,
             "WC": 2.0, "WCQE": 2.3, "WCQA": 2.4,
             "WCQC": 2.3, "WCQAS": 2.2, "WCQAF": 2.5,
+            "BSA": 2.3,
         }
         avg_corner = LEAGUE_CORNERS_PG.get(f.competition_code, 4.8)
         avg_card = LEAGUE_CARDS_PG.get(f.competition_code, 2.0)

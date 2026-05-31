@@ -38,14 +38,16 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.the-odds-api.com/v4"
 
 SPORT_KEYS = {
-    "SA":   "soccer_italy_serie_a",
-    "CL":   "soccer_uefa_champions_league",
-    "WC":   "soccer_fifa_world_cup",
-    "WCQE": "soccer_eu_world_cup_qualification",
-    "WCQA": "soccer_conmebol_world_cup_qualifying",
-    "WCQC": "soccer_concacaf_world_cup_qualifying",
+    "SA":    "soccer_italy_serie_a",
+    "SB":    "soccer_italy_serie_b",
+    "CL":    "soccer_uefa_champions_league",
+    "WC":    "soccer_fifa_world_cup",
+    "WCQE":  "soccer_eu_world_cup_qualification",
+    "WCQA":  "soccer_conmebol_world_cup_qualifying",
+    "WCQC":  "soccer_concacaf_world_cup_qualifying",
     "WCQAS": "soccer_afc_world_cup_qualifying",
     "WCQAF": "soccer_caf_world_cup_qualifying",
+    "BSA":   "soccer_brazil_campeonato",
 }
 
 # Bookmakers to include (shown in the UI)
