@@ -55,9 +55,9 @@ def _blend(llm_val: float, poisson_val: float, llm_weight: float) -> float:
 class BettingOrchestrator:
     """Coordinates the full data → prediction pipeline."""
 
-    # Competitions served by ApiFootballClient instead of football-data.org
-    _API_FOOTBALL_CODES = {"WC", "WCQA", "WCQC", "WCQAS", "WCQAF", "BSA"}
-    _ESPN_CODES = {"ECL"}
+    # No API Football key available — route all previously AF-backed competitions via ESPN
+    _API_FOOTBALL_CODES: set[str] = set()
+    _ESPN_CODES = {"ECL", "BSA", "WC", "WCQA", "WCQC", "WCQAS", "WCQAF"}
 
     def __init__(self):
         self.fd_client = FootballDataClient()

@@ -18,7 +18,13 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 
 ESPN_LEAGUES: dict[str, tuple[str, str]] = {
-    "ECL": ("UEFA.EUROPA.CONF", "UEFA Conference League"),
+    "ECL":   ("UEFA.EUROPA.CONF",  "UEFA Conference League"),
+    "BSA":   ("BRA.1",             "Brasileirao Serie A"),
+    "WC":    ("FIFA.WORLD",        "FIFA World Cup"),
+    "WCQA":  ("CONMEBOL.WORLD",    "WCQ CONMEBOL"),
+    "WCQC":  ("CONCACAF.WORLD",    "WCQ CONCACAF"),
+    "WCQAS": ("AFC.WORLD",         "WCQ Asia"),
+    "WCQAF": ("CAF.WORLD",         "WCQ Africa"),
 }
 
 _STATUS_MAP = {

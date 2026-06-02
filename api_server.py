@@ -87,7 +87,7 @@ def get_fd() -> FootballDataClient:
     return _fd_client
 
 
-_AF_CODES = {"WC", "WCQA", "WCQC", "WCQAS", "WCQAF", "BSA"}
+_AF_CODES: set[str] = set()  # API Football key unavailable; WCQ/BSA now via ESPN
 
 
 def get_af() -> ApiFootballClient:
