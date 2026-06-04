@@ -46,9 +46,9 @@ _LLM_WEIGHT_BTTS  = float(os.getenv("LLM_WEIGHT_BTTS",   "0.40"))
 
 # WC competitions have limited inter-team statistics, so the LLM's contextual
 # reasoning is worth more — boost its blend weight for these competitions.
-_WC_LLM_WEIGHT_1X2   = float(os.getenv("WC_LLM_WEIGHT_1X2",   "0.55"))
-_WC_LLM_WEIGHT_GOALS = float(os.getenv("WC_LLM_WEIGHT_GOALS",  "0.50"))
-_WC_LLM_WEIGHT_BTTS  = float(os.getenv("WC_LLM_WEIGHT_BTTS",   "0.55"))
+_WC_LLM_WEIGHT_1X2   = float(os.getenv("WC_LLM_WEIGHT_1X2",   "0.60"))
+_WC_LLM_WEIGHT_GOALS = float(os.getenv("WC_LLM_WEIGHT_GOALS",  "0.60"))
+_WC_LLM_WEIGHT_BTTS  = float(os.getenv("WC_LLM_WEIGHT_BTTS",   "0.60"))
 
 _WC_CODES_SET = {"WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF"}
 
