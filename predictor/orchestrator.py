@@ -44,6 +44,21 @@ _LLM_WEIGHT_1X2   = float(os.getenv("LLM_WEIGHT_1X2",   "0.40"))
 _LLM_WEIGHT_GOALS = float(os.getenv("LLM_WEIGHT_GOALS",  "0.35"))
 _LLM_WEIGHT_BTTS  = float(os.getenv("LLM_WEIGHT_BTTS",   "0.40"))
 
+# WC competitions have limited inter-team statistics, so the LLM's contextual
+# reasoning is worth more — boost its blend weight for these competitions.
+_WC_LLM_WEIGHT_1X2   = float(os.getenv("WC_LLM_WEIGHT_1X2",   "0.55"))
+_WC_LLM_WEIGHT_GOALS = float(os.getenv("WC_LLM_WEIGHT_GOALS",  "0.50"))
+_WC_LLM_WEIGHT_BTTS  = float(os.getenv("WC_LLM_WEIGHT_BTTS",   "0.55"))
+
+_WC_CODES_SET = {"WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF"}
+
+
+def _get_llm_weights(competition_code: str) -> tuple[float, float, float]:
+    """Returns (weight_1x2, weight_goals, weight_btts) for the given competition."""
+    if competition_code in _WC_CODES_SET:
+        return _WC_LLM_WEIGHT_1X2, _WC_LLM_WEIGHT_GOALS, _WC_LLM_WEIGHT_BTTS
+    return _LLM_WEIGHT_1X2, _LLM_WEIGHT_GOALS, _LLM_WEIGHT_BTTS
+
 
 def _blend(llm_val: float, poisson_val: float, llm_weight: float) -> float:
     """Weighted average; falls back to Poisson when the LLM has no value."""
@@ -138,14 +153,43 @@ class BettingOrchestrator:
 
         # ── 5. Poisson goals model ────────────────────────────────────────────
         try:
+            # FIFA ranking lookup for WC/WCQ competitions
+            home_fifa_rank = away_fifa_rank = None
+            if fixture.competition_code in _WC_CODES_SET:
+                from predictor.fifa_ranking import get_ranking
+                home_fifa_rank = get_ranking(fixture.home_team)
+                away_fifa_rank = get_ranking(fixture.away_team)
+                if home_fifa_rank and away_fifa_rank:
+                    logger.info(
+                        "FIFA rankings: %s #%d vs %s #%d",
+                        fixture.home_team, home_fifa_rank,
+                        fixture.away_team, away_fifa_rank,
+                    )
+                else:
+                    logger.info(
+                        "FIFA ranking not found for %s%s — skipping ranking factor",
+                        fixture.home_team if not home_fifa_rank else "",
+                        f" / {fixture.away_team}" if not away_fifa_rank else "",
+                    )
+
             poisson = compute_poisson(
                 report.home_stats,
                 report.away_stats,
                 fixture.competition_code,
                 head_to_head=report.head_to_head,
                 is_neutral=fixture.is_neutral,
+                home_fifa_rank=home_fifa_rank,
+                away_fifa_rank=away_fifa_rank,
             )
             has_llm = prediction.llm_home_win_pct > 0 or prediction.llm_draw_pct > 0
+
+            # Per-competition LLM blend weights (WC gets higher LLM weight)
+            llm_w_1x2, llm_w_goals, llm_w_btts = _get_llm_weights(fixture.competition_code)
+            if fixture.competition_code in _WC_CODES_SET:
+                logger.info(
+                    "WC competition — using elevated LLM weights: 1X2=%.2f goals=%.2f btts=%.2f",
+                    llm_w_1x2, llm_w_goals, llm_w_btts,
+                )
 
             # Scoreline and lambdas always come from Poisson (most precise)
             prediction.most_likely_scoreline  = poisson.most_likely_scoreline
@@ -162,8 +206,8 @@ class BettingOrchestrator:
 
             # 1X2 — blend LLM + Poisson when LLM is available
             if has_llm:
-                prediction.home_win_pct = _blend(prediction.llm_home_win_pct, poisson.home_win_pct, _LLM_WEIGHT_1X2)
-                prediction.draw_pct     = _blend(prediction.llm_draw_pct,     poisson.draw_pct,     _LLM_WEIGHT_1X2)
+                prediction.home_win_pct = _blend(prediction.llm_home_win_pct, poisson.home_win_pct, llm_w_1x2)
+                prediction.draw_pct     = _blend(prediction.llm_draw_pct,     poisson.draw_pct,     llm_w_1x2)
                 prediction.away_win_pct = round(100.0 - prediction.home_win_pct - prediction.draw_pct, 1)
             else:
                 prediction.home_win_pct = poisson.home_win_pct
@@ -172,7 +216,7 @@ class BettingOrchestrator:
 
             # Goals markets
             if has_llm:
-                prediction.over_2_5_pct  = _blend(prediction.llm_over_2_5_pct, poisson.over_2_5_pct, _LLM_WEIGHT_GOALS)
+                prediction.over_2_5_pct  = _blend(prediction.llm_over_2_5_pct, poisson.over_2_5_pct, llm_w_goals)
                 prediction.under_2_5_pct = round(100.0 - prediction.over_2_5_pct, 1)
             else:
                 prediction.over_2_5_pct  = poisson.over_2_5_pct
@@ -184,7 +228,7 @@ class BettingOrchestrator:
 
             # BTTS
             if has_llm:
-                prediction.btts_yes_pct = _blend(prediction.llm_btts_yes_pct, poisson.btts_yes_pct, _LLM_WEIGHT_BTTS)
+                prediction.btts_yes_pct = _blend(prediction.llm_btts_yes_pct, poisson.btts_yes_pct, llm_w_btts)
                 prediction.btts_no_pct  = round(100.0 - prediction.btts_yes_pct, 1)
             else:
                 prediction.btts_yes_pct = poisson.btts_yes_pct

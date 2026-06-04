@@ -41,10 +41,12 @@ class SeedGenerator:
             self._team_profile(
                 f.home_team, report.home_form, report.home_stats,
                 report.home_standing, report.home_injuries, is_home=True,
+                competition_code=f.competition_code,
             ),
             self._team_profile(
                 f.away_team, report.away_form, report.away_stats,
                 report.away_standing, report.away_injuries, is_home=False,
+                competition_code=f.competition_code,
             ),
             self._head_to_head(report),
             self._statistical_matchup(report),
@@ -169,7 +171,8 @@ class SeedGenerator:
         return f"## COMPETITION CONTEXT\n{comp_desc}{standing_info}"
 
     def _team_profile(self, team_name: str, form: TeamForm, stats: TeamStats,
-                       standing, injuries, is_home: bool) -> str:
+                       standing, injuries, is_home: bool,
+                       competition_code: str = "") -> str:
         loc = "HOME" if is_home else "AWAY"
         venue_record = form.home_record if is_home else form.away_record
 
@@ -199,6 +202,14 @@ class SeedGenerator:
         btts_pct = f"{stats.btts_rate * 100:.0f}%" if stats.btts_rate else "N/A"
         cs_pct = f"{stats.clean_sheet_rate * 100:.0f}%" if stats.clean_sheet_rate else "N/A"
 
+        # FIFA ranking row — only for national-team competitions
+        fifa_row = ""
+        if competition_code in ("WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF"):
+            from predictor.fifa_ranking import get_ranking
+            rank = get_ranking(team_name)
+            rank_str = f"**#{rank}**" if rank else "N/A (unranked)"
+            fifa_row = f"| FIFA World Ranking | {rank_str} |\n"
+
         return (
             f"## {loc} TEAM: {team_name.upper()}\n\n"
             f"### Recent Form (Last 5)\n"
@@ -210,6 +221,7 @@ class SeedGenerator:
             f"### Season Statistics (per game)\n"
             f"| Metric | Value |\n"
             f"|--------|-------|\n"
+            f"{fifa_row}"
             f"| Goals scored | **{stats.goals_scored_pg}** |\n"
             f"| Goals conceded | **{stats.goals_conceded_pg}** |\n"
             f"| xG (expected goals) | **{stats.xg_pg}** |\n"
@@ -314,10 +326,21 @@ class SeedGenerator:
         else:
             cards_signal = "**→ Low-card match: leans UNDER 3.5 cards**"
 
+        # FIFA ranking comparison row for national team competitions
+        fifa_matchup_row = ""
+        if f.competition_code in ("WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF"):
+            from predictor.fifa_ranking import get_ranking
+            h_rank = get_ranking(f.home_team)
+            a_rank = get_ranking(f.away_team)
+            h_rank_str = f"#{h_rank}" if h_rank else "N/A"
+            a_rank_str = f"#{a_rank}" if a_rank else "N/A"
+            fifa_matchup_row = f"| FIFA Ranking | **{h_rank_str}** | **{a_rank_str}** |\n"
+
         return (
             f"## STATISTICAL MATCHUP\n\n"
             f"| Metric | {f.home_team} | {f.away_team} |\n"
             f"|--------|{'':>{len(f.home_team)}}|{'':>{len(f.away_team)}}|\n"
+            f"{fifa_matchup_row}"
             f"| Goals scored/game | {hs.goals_scored_pg} | {as_.goals_scored_pg} |\n"
             f"| Goals conceded/game | {hs.goals_conceded_pg} | {as_.goals_conceded_pg} |\n"
             f"| xG/game | {hs.xg_pg} | {as_.xg_pg} |\n"

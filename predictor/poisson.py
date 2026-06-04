@@ -273,6 +273,8 @@ def compute_poisson(
     competition_code: str = "",
     head_to_head: HeadToHead | None = None,
     is_neutral: bool = False,
+    home_fifa_rank: int | None = None,
+    away_fifa_rank: int | None = None,
 ) -> PoissonResult:
     """
     Compute the Poisson scoreline probability grid.
@@ -284,6 +286,7 @@ def compute_poisson(
     Falls back from xG → goals_scored if xG data is unavailable.
     H2H history applies a ±10% max adjustment to both lambdas.
     is_neutral=True forces home_advantage=1.0 (WC, final-stage matches).
+    FIFA ranking applies a ±12% max adjustment when both ranks are provided.
     """
     avg = LEAGUE_AVG_XG.get(competition_code, _DEFAULT_AVG_XG)
 
@@ -303,6 +306,13 @@ def compute_poisson(
     h2h_home_f, h2h_away_f = _h2h_factors(head_to_head)
     lambda_home *= h2h_home_f
     lambda_away *= h2h_away_f
+
+    # FIFA ranking adjustment (±12% max) — for national team competitions
+    if home_fifa_rank and away_fifa_rank:
+        from predictor.fifa_ranking import ranking_lambda_factors
+        fifa_home_f, fifa_away_f = ranking_lambda_factors(home_fifa_rank, away_fifa_rank)
+        lambda_home *= fifa_home_f
+        lambda_away *= fifa_away_f
 
     # Clamp to realistic range
     lambda_home = max(0.20, min(lambda_home, 5.0))
