@@ -401,6 +401,27 @@ class BettingOrchestrator:
                 if stats.games_played == 0:
                     self._fill_stats_from_espn_results(stats, name, espn_results)
 
+        # Static FIFA-ranking-based ratings — guaranteed fallback when every
+        # external source fails (API tier restrictions, FBref blocked, etc.).
+        if code == "WC" and (home_stats.games_played == 0 or away_stats.games_played == 0):
+            from predictor.wc_team_ratings import WC_STRENGTH
+            for stats, name in ((home_stats, fixture.home_team), (away_stats, fixture.away_team)):
+                if stats.games_played == 0:
+                    rating = WC_STRENGTH.get(name)
+                    if not rating:
+                        # Fuzzy: find by shared keyword
+                        kw = {w.lower() for w in name.split() if len(w) > 3}
+                        for known, r in WC_STRENGTH.items():
+                            if kw & {w.lower() for w in known.split() if len(w) > 3}:
+                                rating = r
+                                break
+                    if rating:
+                        stats.goals_scored_pg   = rating[0]
+                        stats.goals_conceded_pg  = rating[1]
+                        stats.games_played      = rating[2]
+                        logger.info("FIFA ranking fallback for %s: %.2f GF, %.2f GA",
+                                    name, rating[0], rating[1])
+
         # BTTS / clean sheet rates from FBref schedule
         btts_data = self._safe(
             lambda: self.fbref.get_btts_and_clean_sheets(code),
