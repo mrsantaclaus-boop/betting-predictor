@@ -68,6 +68,8 @@ class BettingOrchestrator:
         self.parser = ResultParser()
         # Cache of fd.org team IDs keyed by competition code (ESPN IDs ≠ fd.org IDs)
         self._fd_competition_teams: dict[str, dict[str, int]] = {}
+        # Cache of ESPN WC+WCQ results for team stats fallback
+        self._espn_wc_results_cache: Optional[list] = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -373,6 +375,16 @@ class BettingOrchestrator:
                 if stats.goals_conceded_pg == 0.0:
                     stats.goals_conceded_pg = round(standing.goals_against / gp, 2)
 
+        # ESPN historical results fallback for WC competitions.
+        # When all other sources fail (fd.org WC access restricted, FBref not yet
+        # available), aggregate goals from WC + all WCQ results available on ESPN.
+        # Team names are guaranteed to match because fixtures come from ESPN too.
+        if code == "WC" and (home_stats.games_played == 0 or away_stats.games_played == 0):
+            espn_results = self._get_espn_wc_results()
+            for stats, name in ((home_stats, fixture.home_team), (away_stats, fixture.away_team)):
+                if stats.games_played == 0:
+                    self._fill_stats_from_espn_results(stats, name, espn_results)
+
         # BTTS / clean sheet rates from FBref schedule
         btts_data = self._safe(
             lambda: self.fbref.get_btts_and_clean_sheets(code),
@@ -433,6 +445,39 @@ class BettingOrchestrator:
             if kw & s_kw:
                 return s
         return None
+
+    def _get_espn_wc_results(self) -> list:
+        """Aggregate ESPN results across WC + all WCQ competitions (cached per instance)."""
+        if self._espn_wc_results_cache is None:
+            results = []
+            for code in ("WC", "WCQA", "WCQC", "WCQAS", "WCQAF", "WCQE"):
+                partial = self._safe(
+                    lambda c=code: self.espn_client.get_competition_results(c, days_back=730),
+                    default_factory=list,
+                )
+                results.extend(partial or [])
+            self._espn_wc_results_cache = results
+        return self._espn_wc_results_cache
+
+    @staticmethod
+    def _fill_stats_from_espn_results(stats, team_name: str, results: list) -> None:
+        """Fill goals_scored_pg / goals_conceded_pg / games_played from ESPN results."""
+        scored, conceded = [], []
+        for f in results:
+            if f.home_team == team_name:
+                scored.append(f.home_score)
+                conceded.append(f.away_score)
+            elif f.away_team == team_name:
+                scored.append(f.away_score)
+                conceded.append(f.home_score)
+        if not scored:
+            return
+        n = len(scored)
+        stats.goals_scored_pg  = round(sum(scored)   / n, 2)
+        stats.goals_conceded_pg = round(sum(conceded) / n, 2)
+        stats.games_played     = n
+        logger.info("ESPN WCQ fallback for %s: %d games, %.2f GF, %.2f GA",
+                    team_name, n, stats.goals_scored_pg, stats.goals_conceded_pg)
 
     @staticmethod
     def _match_team_name(team_name: str, teams: dict[str, int]) -> Optional[int]:
