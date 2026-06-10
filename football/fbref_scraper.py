@@ -616,14 +616,83 @@ class FBrefScraper:
 
     _WCQ_CODES = ["WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF"]
 
+    # Maps each likely WC 2026 participant to its confederation WCQ code so
+    # get_wcq_stats() only needs ONE FBref request instead of up to five.
+    _TEAM_CONFEDERATION: dict[str, str] = {
+        # UEFA → WCQE
+        **{t: "WCQE" for t in [
+            "France", "England", "Germany", "Spain", "Portugal", "Netherlands",
+            "Belgium", "Croatia", "Denmark", "Switzerland", "Austria", "Serbia",
+            "Scotland", "Poland", "Turkey", "Hungary", "Romania", "Ukraine",
+            "Czech Republic", "Slovakia", "Sweden", "Norway", "Finland", "Greece",
+            "Albania", "Slovenia", "Montenegro", "Wales", "Ireland", "Georgia",
+            "North Macedonia", "Israel", "Bosnia and Herzegovina", "Armenia",
+            "Kosovo", "Luxembourg", "Iceland", "Northern Ireland", "Bulgaria",
+            "Italy", "Russia",
+        ]},
+        # CONMEBOL → WCQA
+        **{t: "WCQA" for t in [
+            "Argentina", "Brazil", "Uruguay", "Colombia", "Ecuador", "Paraguay",
+            "Venezuela", "Chile", "Peru", "Bolivia",
+        ]},
+        # CONCACAF → WCQC
+        **{t: "WCQC" for t in [
+            "United States", "USA", "Mexico", "Canada", "Jamaica", "Panama",
+            "Honduras", "Costa Rica", "El Salvador", "Trinidad and Tobago",
+            "Haiti", "Cuba", "Guatemala", "Suriname", "Guyana", "Barbados",
+            "Belize", "Antigua and Barbuda", "Saint Kitts and Nevis",
+        ]},
+        # AFC → WCQAS
+        **{t: "WCQAS" for t in [
+            "Japan", "South Korea", "Korea Republic", "Republic of Korea",
+            "Iran", "IR Iran", "Australia", "Saudi Arabia", "Iraq", "Jordan",
+            "Uzbekistan", "Qatar", "UAE", "United Arab Emirates", "China PR",
+            "China", "Vietnam", "Indonesia", "Thailand", "Bahrain", "Oman",
+            "Kuwait", "Syria", "Palestine", "New Zealand", "Kyrgyzstan", "Tajikistan",
+        ]},
+        # CAF → WCQAF
+        **{t: "WCQAF" for t in [
+            "Morocco", "Senegal", "Nigeria", "Cameroon", "Egypt", "Ivory Coast",
+            "Côte d'Ivoire", "Tunisia", "Algeria", "DR Congo", "Mali", "Ghana",
+            "South Africa", "Cape Verde", "Guinea", "Zambia", "Congo",
+            "Gabon", "Tanzania", "Uganda", "Angola", "Mauritania", "Libya",
+            "Zimbabwe", "Ethiopia", "Rwanda", "Comoros", "Burkina Faso",
+            "Benin", "Togo", "Niger", "Gambia", "Malawi", "Equatorial Guinea",
+            "Sudan", "Liberia", "Namibia", "Sierra Leone", "Mozambique",
+        ]},
+    }
+
     def get_wcq_stats(self, team_name: str) -> Optional[TeamStats]:
         """
-        Search all WCQ competitions for a team's stats.
-        Used as a quality proxy for WC teams when no current WC data exists.
+        Search WCQ competitions for a team's stats.
+        Uses a confederation map to make only one FBref request when the team
+        is known, falling back to a full search for unrecognised names.
         Results are served from cache after the first fetch per competition.
         """
         kw = self._name_keywords(team_name)
-        for code in self._WCQ_CODES:
+
+        # Fast path: look up the team's confederation directly
+        confederation = self._TEAM_CONFEDERATION.get(team_name)
+        if not confederation:
+            # Fuzzy lookup — use stripped keywords that exclude geographic generics
+            # so "Korea Republic" doesn't incorrectly match "Czech Republic"
+            _geo_stop = {"republic", "north", "south", "east", "west",
+                         "central", "democratic", "island", "islands"}
+            kw_strict = kw - _geo_stop
+            for known_name, conf in self._TEAM_CONFEDERATION.items():
+                known_strict = self._name_keywords(known_name) - _geo_stop
+                if kw_strict and kw_strict & known_strict:
+                    confederation = conf
+                    break
+
+        # Search the known confederation first (single FBref request if cached)
+        search_order = (
+            [confederation] + [c for c in self._WCQ_CODES if c != confederation]
+            if confederation
+            else self._WCQ_CODES
+        )
+
+        for code in search_order:
             try:
                 stats_list = self.get_team_stats(code)
             except Exception:
@@ -634,6 +703,10 @@ class FBrefScraper:
             for s in stats_list:
                 if kw & self._name_keywords(s.team_name):
                     return s
+            # If we found the confederation and it has teams but none matched,
+            # stop — the team is unlikely to be in other confederations.
+            if confederation and code == confederation and stats_list:
+                break
         return None
 
     # ── Helpers ───────────────────────────────────────────────────────────────
