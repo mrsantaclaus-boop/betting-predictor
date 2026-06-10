@@ -159,6 +159,20 @@ class FBrefScraper:
                 s.red_cards_pg = m.red_cards_pg
                 s.fouls_committed_pg = m.fouls_committed_pg
 
+        # Merge defensive stats (goals conceded, xGA) from the "against" table
+        against = self._parse_against_table(soup, competition_code)
+        against_map = {name: (gc_pg, xga_pg) for name, gc_pg, xga_pg in against}
+        for s in standard:
+            entry = against_map.get(s.team_name)
+            if not entry:
+                kw = self._name_keywords(s.team_name)
+                for name, val in against_map.items():
+                    if kw & self._name_keywords(name):
+                        entry = val
+                        break
+            if entry:
+                s.goals_conceded_pg, s.xga_pg = entry
+
         # Fetch corners from passing table
         corners = self._parse_corners(soup, competition_code)
         corners_map = {name: val for name, val in corners}
@@ -167,6 +181,45 @@ class FBrefScraper:
                 s.corners_pg = corners_map[s.team_name]
 
         return standard
+
+    def _parse_against_table(self, soup: BeautifulSoup,
+                              competition_code: str) -> list[tuple]:
+        """
+        Parse goals conceded and xGA from the 'stats_squads_standard_against' table.
+        Returns list of (team_name, goals_conceded_pg, xga_pg).
+        """
+        result = []
+        table = soup.find("table", id=re.compile(r"stats_squads_standard_against"))
+        if not table:
+            return result
+        tbody = table.find("tbody")
+        if not tbody:
+            return result
+        for row in tbody.find_all("tr"):
+            if row.get("class") and "thead" in row.get("class", []):
+                continue
+            team_cell = row.find("td", {"data-stat": "team"})
+            if not team_cell:
+                continue
+            team_name = team_cell.get_text(strip=True)
+            if not team_name:
+                continue
+
+            def cell(stat: str) -> float:
+                td = row.find("td", {"data-stat": stat})
+                if td:
+                    txt = td.get_text(strip=True).replace(",", "")
+                    try:
+                        return float(txt)
+                    except ValueError:
+                        return 0.0
+                return 0.0
+
+            gp = int(cell("games") or 1)
+            goals_conceded_pg = round(cell("goals") / max(gp, 1), 2)
+            xga_pg = round(cell("xg") / max(gp, 1), 2)
+            result.append((team_name, goals_conceded_pg, xga_pg))
+        return result
 
     def _parse_standard_table(self, soup: BeautifulSoup,
                                competition_code: str) -> list[TeamStats]:
@@ -558,6 +611,30 @@ class FBrefScraper:
                     team_data[team]["clean_sheets"] += 1
 
         return team_data
+
+    # ── WC qualifying fallback ────────────────────────────────────────────────
+
+    _WCQ_CODES = ["WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF"]
+
+    def get_wcq_stats(self, team_name: str) -> Optional[TeamStats]:
+        """
+        Search all WCQ competitions for a team's stats.
+        Used as a quality proxy for WC teams when no current WC data exists.
+        Results are served from cache after the first fetch per competition.
+        """
+        kw = self._name_keywords(team_name)
+        for code in self._WCQ_CODES:
+            try:
+                stats_list = self.get_team_stats(code)
+            except Exception:
+                continue
+            for s in stats_list:
+                if s.team_name.lower() == team_name.lower():
+                    return s
+            for s in stats_list:
+                if kw & self._name_keywords(s.team_name):
+                    return s
+        return None
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

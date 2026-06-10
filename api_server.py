@@ -16,6 +16,7 @@ Endpoints:
   POST /api/results/sync
   GET  /api/edge
   POST /api/cache/clear
+  DELETE /api/predictions/unplayed
 """
 
 from __future__ import annotations
@@ -962,6 +963,44 @@ def model_calibration():
     }
 
     return jsonify(result)
+
+
+def _delete_unplayed_preds() -> int:
+    """Delete all predictions that have no recorded actual score (unplayed matches).
+    Returns the number of rows deleted.
+    """
+    if _USE_PG:
+        with _get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM predictions "
+                    "WHERE data::jsonb ->> 'actual_score' IS NULL "
+                    "AND (data::jsonb -> 'outcomes') IS NULL"
+                )
+                return cur.rowcount
+    else:
+        with _get_conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM predictions "
+                "WHERE json_extract(data, '$.actual_score') IS NULL "
+                "AND json_extract(data, '$.outcomes') IS NULL"
+            )
+            return cur.rowcount
+
+
+@app.route("/api/predictions/unplayed", methods=["DELETE"])
+def delete_unplayed_predictions():
+    """Delete stored predictions for matches that have not yet been played.
+    Unplayed = no actual_score and no outcomes recorded.
+    After calling this, predictions will be re-generated fresh on the next
+    POST /api/predict request for each fixture.
+    """
+    try:
+        deleted = _delete_unplayed_preds()
+        return jsonify({"deleted": deleted})
+    except Exception as e:
+        logger.exception("delete unplayed predictions error")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/cache/clear", methods=["POST"])
