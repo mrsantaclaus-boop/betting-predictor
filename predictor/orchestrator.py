@@ -328,6 +328,37 @@ class BettingOrchestrator:
             fixture.away_team, code, away_form, fbref_map
         )
 
+        # For WC, when no current tournament stats exist (tournament not yet started
+        # or FBref page empty), fall back to each team's qualifying campaign stats
+        # as a proxy for team quality.
+        if code == "WC":
+            for stats, name in ((home_stats, fixture.home_team), (away_stats, fixture.away_team)):
+                if stats.games_played == 0:
+                    wcq = self._safe(lambda n=name: self.fbref.get_wcq_stats(n))
+                    if wcq and wcq.games_played > 0:
+                        stats.goals_scored_pg  = wcq.goals_scored_pg
+                        stats.goals_conceded_pg = wcq.goals_conceded_pg
+                        stats.xg_pg            = wcq.xg_pg
+                        stats.xga_pg           = wcq.xga_pg
+                        stats.games_played     = wcq.games_played
+                        stats.corners_pg       = wcq.corners_pg
+                        stats.yellow_cards_pg  = wcq.yellow_cards_pg
+                        stats.red_cards_pg     = wcq.red_cards_pg
+                        logger.info("WC fallback: using WCQ stats for %s", name)
+
+        # If stats are still empty but standings data is available (in-tournament),
+        # use standings goals for/against to differentiate teams.
+        for stats, standing in (
+            (home_stats, home_standing), (away_stats, away_standing)
+        ):
+            if stats.games_played == 0 and standing and standing.played > 0:
+                gp = standing.played
+                stats.games_played = gp
+                if stats.goals_scored_pg == 0.0:
+                    stats.goals_scored_pg = round(standing.goals_for / gp, 2)
+                if stats.goals_conceded_pg == 0.0:
+                    stats.goals_conceded_pg = round(standing.goals_against / gp, 2)
+
         # BTTS / clean sheet rates from FBref schedule
         btts_data = self._safe(
             lambda: self.fbref.get_btts_and_clean_sheets(code),
@@ -389,6 +420,12 @@ class BettingOrchestrator:
         if base.goals_conceded_pg == 0.0 and form.goals_conceded:
             n = len(form.goals_conceded)
             base.goals_conceded_pg = round(sum(form.goals_conceded) / n, 2)
+
+        # Use form game count as games_played when FBref has no data.
+        # This prevents apply_shrinkage from collapsing all stats to the league
+        # average (which happens whenever games_played == 0).
+        if base.games_played == 0 and form.goals_scored:
+            base.games_played = len(form.goals_scored)
 
         return base
 

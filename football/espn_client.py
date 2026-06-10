@@ -27,6 +27,9 @@ ESPN_LEAGUES: dict[str, tuple[str, str]] = {
     "WCQAF": ("CAF.WORLD",         "WCQ Africa"),
 }
 
+# Competitions where all matches are played at neutral venues
+_NEUTRAL_VENUE_CODES = {"WC"}
+
 _STATUS_MAP = {
     "STATUS_SCHEDULED":   "SCHEDULED",
     "STATUS_IN_PROGRESS": "IN_PLAY",
@@ -106,6 +109,7 @@ class EspnClient:
                     home_score=int(home_score) if home_score is not None else None,
                     away_score=int(away_score) if away_score is not None else None,
                     stage=stage or None,
+                    is_neutral=competition_code in _NEUTRAL_VENUE_CODES,
                 ))
             except (KeyError, ValueError, IndexError) as e:
                 logger.debug("Skip malformed ESPN event: %s", e)
