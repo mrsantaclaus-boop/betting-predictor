@@ -25,6 +25,7 @@ ESPN_LEAGUES: dict[str, tuple[str, str]] = {
     "WCQC":  ("CONCACAF.WORLD",    "WCQ CONCACAF"),
     "WCQAS": ("AFC.WORLD",         "WCQ Asia"),
     "WCQAF": ("CAF.WORLD",         "WCQ Africa"),
+    "WCQE":  ("UEFA.WORLD",        "WCQ Europe"),
 }
 
 # Competitions where all matches are played at neutral venues
@@ -66,6 +67,30 @@ class EspnClient:
             return self._parse_events(data, competition_code, comp_name)
         except Exception as e:
             logger.warning("ESPN fetch failed for %s: %s", competition_code, e)
+            return []
+
+    def get_competition_results(self, competition_code: str,
+                                days_back: int = 365) -> list[Fixture]:
+        """Return recently FINISHED fixtures going back N days."""
+        league_info = ESPN_LEAGUES.get(competition_code)
+        if not league_info:
+            return []
+        league_slug, comp_name = league_info
+
+        end_date = datetime.now(timezone.utc).date()
+        start_date = end_date - timedelta(days=days_back)
+        date_range = f"{start_date.strftime('%Y%m%d')}-{end_date.strftime('%Y%m%d')}"
+
+        try:
+            url = f"{BASE_URL}/{league_slug}/scoreboard"
+            resp = self.session.get(url, params={"dates": date_range}, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            fixtures = self._parse_events(data, competition_code, comp_name)
+            return [f for f in fixtures if f.status == "FINISHED"
+                    and f.home_score is not None and f.away_score is not None]
+        except Exception as e:
+            logger.warning("ESPN results fetch failed for %s: %s", competition_code, e)
             return []
 
     def _parse_events(self, data: dict, competition_code: str,
