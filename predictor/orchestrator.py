@@ -418,6 +418,8 @@ class BettingOrchestrator:
                     if rating:
                         stats.goals_scored_pg   = rating[0]
                         stats.goals_conceded_pg  = rating[1]
+                        stats.xg_pg             = rating[0]
+                        stats.xga_pg            = rating[1]
                         stats.games_played      = rating[2]
                         logger.info("FIFA ranking fallback for %s: %.2f GF, %.2f GA",
                                     name, rating[0], rating[1])
