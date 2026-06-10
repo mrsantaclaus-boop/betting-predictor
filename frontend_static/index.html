@@ -37,6 +37,8 @@
     .btn.primary:hover{background:#388bfd}
     .btn.ghost{background:transparent;border-color:transparent;color:#8b949e}
     .btn.ghost:hover{color:#e6edf3;background:#21262d}
+    .btn.danger{background:#21262d;border-color:#da3633;color:#f85149}
+    .btn.danger:hover{background:#da3633;color:#fff}
     .btn.lg{padding:10px 22px;font-size:.95rem}
     .btn:disabled{opacity:.5;cursor:not-allowed}
 
@@ -254,10 +256,17 @@
       <span class="dim" style="font-size:.82rem">
         {{ resolvedCount }} resolved · {{ unresolvedCount }} pending
       </span>
-      <button class="btn" :disabled="syncing" @click="syncResults">
-        <span v-if="syncing"><span class="spin xs"></span> Syncing…</span>
-        <span v-else>↺ Sync Results</span>
-      </button>
+      <div style="display:flex;gap:8px">
+        <button class="btn danger" :disabled="resetting || unresolvedCount===0" @click="resetUnplayed"
+          :title="'Delete ' + unresolvedCount + ' pending prediction(s) so they can be re-run'">
+          <span v-if="resetting"><span class="spin xs"></span> Resetting…</span>
+          <span v-else>🗑 Reset Unplayed ({{ unresolvedCount }})</span>
+        </button>
+        <button class="btn" :disabled="syncing" @click="syncResults">
+          <span v-if="syncing"><span class="spin xs"></span> Syncing…</span>
+          <span v-else>↺ Sync Results</span>
+        </button>
+      </div>
     </div>
     <div v-if="!predictions.length" class="state">No predictions yet. Open a fixture and click "Run AI Prediction".</div>
     <div v-else class="pred-list">
@@ -709,6 +718,7 @@ createApp({
     const edgeData = ref(null)
     const loadingEdge = ref(false)
     const syncing = ref(false)
+    const resetting = ref(false)
     const edgeComp = ref('ALL')
     const valueBets = ref([])
     const loadingValue = ref(false)
@@ -964,6 +974,17 @@ createApp({
       return 'cl'
     }
 
+    async function resetUnplayed() {
+      if (!confirm(`Delete all ${unresolvedCount.value} pending prediction(s)? They will be re-generated fresh when you click "Run AI Prediction" again.`)) return
+      resetting.value = true
+      try {
+        const r = await fetch(`${API}/predictions/unplayed`, { method: 'DELETE' })
+        const d = await r.json()
+        await loadPredictions()
+      } catch(e) { alert(`Reset failed: ${e.message}`) }
+      finally { resetting.value = false }
+    }
+
     async function syncResults() {
       syncing.value = true
       try {
@@ -1010,8 +1031,8 @@ createApp({
       standComp, activePred, edgeData, loadingEdge, syncing, resolvedCount, unresolvedCount,
       valueBets, loadingValue, edgeComp, activeEdgeData, calibMkt, calibMkts, calibBuckets,
       modelCalibData, modelCalibMkt, modelCalibSrc, modelCalibMkts, modelCalibMktData,
-      availableModelCalibSrcs, modelCalibBuckets,
-      loadFixtures, loadStandings, openFixture, runPred, loadEdge, syncResults, loadValueBets,
+      availableModelCalibSrcs, modelCalibBuckets, resetting,
+      loadFixtures, loadStandings, openFixture, runPred, loadEdge, syncResults, loadValueBets, resetUnplayed,
       hasPred, hasValueMarket, mktLabel, fmt, fmtShort, compClass, compCodeFromLabel,
       mkts, resultLabel, resultPct, compBadgeLabel
     }
