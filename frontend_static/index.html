@@ -177,6 +177,10 @@
 
     /* Value badge */
     .badge.value{background:#2a1f00;color:#e3b341;border:1px solid #5e4a00}
+    .badge.goals{background:#0d2a3a;color:#79c0ff;border:1px solid #1f6feb}
+    /* Goals banner on prediction card */
+    .goals-banner{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:7px 12px;background:#0a1f2e;border:1px solid #1f6feb;border-radius:8px;font-size:.82rem;color:#79c0ff}
+    .goals-banner strong{font-size:1rem;color:#58a6ff}
 
     /* Edge table */
     .tbl td.pos{color:#3fb950}
@@ -242,6 +246,7 @@
         <div class="f-foot">
           <span v-if="hasPred(f.fixture_id)" class="badge green">✓ Predicted</span>
           <span v-if="hasValueMarket(f.fixture_id)" class="badge value">⚡ VALUE</span>
+          <span v-if="isHighGoals(f.fixture_id)" class="badge goals">⚽ GOALS</span>
           <span v-if="running.has(f.fixture_id)" class="badge yellow">
             <span class="spin xs"></span> Running…
           </span>
@@ -257,6 +262,8 @@
         {{ resolvedCount }} resolved · {{ unresolvedCount }} pending
       </span>
       <div style="display:flex;gap:8px">
+        <button :class="['btn', predSort==='goals' ? '' : 'ghost']" @click="predSort = predSort==='goals' ? 'date' : 'goals'"
+          title="Sort by Over 2.5 probability">⚽ Sort by Goals</button>
         <button class="btn danger" :disabled="resetting || unresolvedCount===0" @click="resetUnplayed"
           :title="'Delete ' + unresolvedCount + ' pending prediction(s) so they can be re-run'">
           <span v-if="resetting"><span class="spin xs"></span> Resetting…</span>
@@ -270,7 +277,7 @@
     </div>
     <div v-if="!predictions.length" class="state">No predictions yet. Open a fixture and click "Run AI Prediction".</div>
     <div v-else class="pred-list">
-      <div v-for="p in predictions" :key="p.fixture_id" class="pred-card">
+      <div v-for="p in sortedPredictions" :key="p.fixture_id" class="pred-card">
         <div class="pred-hdr">
           <div>
             <span :class="['badge', compClass(p.competition)]">{{ p.competition }}</span>
@@ -290,6 +297,12 @@
         <div :class="['result-pill', p.home_win_pct>=p.away_win_pct&&p.home_win_pct>=p.draw_pct ? 'win' : p.draw_pct>=p.away_win_pct ? 'draw' : 'win']">
           <span>{{ resultLabel(p) }}</span>
           <strong>{{ resultPct(p) }}%</strong>
+        </div>
+        <div v-if="p.over_2_5_pct >= 60" class="goals-banner">
+          <span>⚽ Alta probabilità di gol</span>
+          <strong>O2.5 {{ p.over_2_5_pct }}%</strong>
+          <span v-if="p.over_3_5_pct >= 35" style="margin-left:4px;color:#8b949e">· O3.5 {{ p.over_3_5_pct }}%</span>
+          <span v-if="p.btts_yes_pct >= 55" style="margin-left:4px;color:#8b949e">· BTTS {{ p.btts_yes_pct }}%</span>
         </div>
         <div class="mkt-grid">
           <div v-for="m in mkts(p)" :key="m.label" class="mkt-card">
@@ -724,8 +737,15 @@ createApp({
     const loadingValue = ref(false)
     const calibMkt = ref('home_win')
     const MIN_SAMPLE = 5
+    const predSort = ref('date')
     const resolvedCount = computed(() => predictions.value.filter(p => p.actual_score).length)
     const unresolvedCount = computed(() => predictions.value.filter(p => !p.actual_score).length)
+    const sortedPredictions = computed(() => {
+      if (predSort.value === 'goals') {
+        return [...predictions.value].sort((a, b) => (b.over_2_5_pct || 0) - (a.over_2_5_pct || 0))
+      }
+      return predictions.value
+    })
     const activePred = computed(() =>
       activeFixture.value ? predMap.value[activeFixture.value.fixture_id] ?? null : null
     )
@@ -1003,6 +1023,10 @@ createApp({
         s.edge !== null && s.edge > 0 && s.sample_size >= MIN_SAMPLE
       )
     }
+    function isHighGoals(fixture_id) {
+      const p = predMap.value[fixture_id]
+      return p && (p.over_2_5_pct || 0) >= 55
+    }
 
     function mktLabel(key) {
       const MAP = {
@@ -1032,8 +1056,9 @@ createApp({
       valueBets, loadingValue, edgeComp, activeEdgeData, calibMkt, calibMkts, calibBuckets,
       modelCalibData, modelCalibMkt, modelCalibSrc, modelCalibMkts, modelCalibMktData,
       availableModelCalibSrcs, modelCalibBuckets, resetting,
+      predSort, sortedPredictions,
       loadFixtures, loadStandings, openFixture, runPred, loadEdge, syncResults, loadValueBets, resetUnplayed,
-      hasPred, hasValueMarket, mktLabel, fmt, fmtShort, compClass, compCodeFromLabel,
+      hasPred, hasValueMarket, isHighGoals, mktLabel, fmt, fmtShort, compClass, compCodeFromLabel,
       mkts, resultLabel, resultPct, compBadgeLabel
     }
   }
