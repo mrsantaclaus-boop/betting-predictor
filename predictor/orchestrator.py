@@ -375,10 +375,26 @@ class BettingOrchestrator:
                 if stats.goals_conceded_pg == 0.0:
                     stats.goals_conceded_pg = round(standing.goals_against / gp, 2)
 
-        # ESPN historical results fallback for WC competitions.
-        # When all other sources fail (fd.org WC access restricted, FBref not yet
-        # available), aggregate goals from WC + all WCQ results available on ESPN.
-        # Team names are guaranteed to match because fixtures come from ESPN too.
+        # WC fallback chain when tournament hasn't started yet or no stats available.
+        # 1. FBref WCQ — uses confederation map so only 1 request per team (~4s each).
+        # 2. ESPN historical results — covers any finished WC/WCQ games on ESPN.
+        if code == "WC" and (home_stats.games_played == 0 or away_stats.games_played == 0):
+            for stats, name in ((home_stats, fixture.home_team), (away_stats, fixture.away_team)):
+                if stats.games_played == 0:
+                    wcq = self._safe(lambda n=name: self.fbref.get_wcq_stats(n))
+                    if wcq and wcq.games_played > 0:
+                        stats.goals_scored_pg   = wcq.goals_scored_pg
+                        stats.goals_conceded_pg  = wcq.goals_conceded_pg
+                        stats.xg_pg             = wcq.xg_pg
+                        stats.xga_pg            = wcq.xga_pg
+                        stats.games_played      = wcq.games_played
+                        stats.corners_pg        = wcq.corners_pg
+                        stats.yellow_cards_pg   = wcq.yellow_cards_pg
+                        stats.red_cards_pg      = wcq.red_cards_pg
+                        logger.info("WCQ fallback: %s — %d games (via %s)",
+                                    name, wcq.games_played, wcq.competition)
+
+        # ESPN results fallback (covers once group stage matches start).
         if code == "WC" and (home_stats.games_played == 0 or away_stats.games_played == 0):
             espn_results = self._get_espn_wc_results()
             for stats, name in ((home_stats, fixture.home_team), (away_stats, fixture.away_team)):
