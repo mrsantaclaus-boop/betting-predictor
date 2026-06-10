@@ -166,31 +166,54 @@ class FootballDataClient:
     # ── Standings ─────────────────────────────────────────────────────────────
 
     def get_standings(self, competition_code: str) -> list[Standing]:
-        """Return current league table (Serie A only — UCL uses group tables)."""
+        """Return current standings table.
+
+        For domestic leagues a TOTAL-type table is used. For tournaments like
+        the World Cup the API returns per-group tables; we collect all of them
+        so callers get the full participant list.
+        """
         data = self._get(f"competitions/{competition_code}/standings")
         standings = []
-        for table in data.get("standings", []):
-            if table.get("type") == "TOTAL":
-                for row in table.get("table", []):
-                    try:
-                        standings.append(Standing(
-                            position=row["position"],
-                            team_name=row["team"]["name"],
-                            team_id=row["team"]["id"],
-                            played=row["playedGames"],
-                            won=row["won"],
-                            drawn=row["draw"],
-                            lost=row["lost"],
-                            goals_for=row["goalsFor"],
-                            goals_against=row["goalsAgainst"],
-                            goal_difference=row["goalDifference"],
-                            points=row["points"],
-                            form=row.get("form", ""),
-                        ))
-                    except KeyError:
+        all_tables = data.get("standings", [])
+
+        # Prefer a TOTAL table (domestic leagues); fall back to all group tables
+        total = next((t for t in all_tables if t.get("type") == "TOTAL"), None)
+        tables = [total] if total else all_tables
+
+        seen: set[int] = set()
+        for table in tables:
+            for row in table.get("table", []):
+                try:
+                    tid = row["team"]["id"]
+                    if tid in seen:
                         continue
-                break
+                    seen.add(tid)
+                    standings.append(Standing(
+                        position=row["position"],
+                        team_name=row["team"]["name"],
+                        team_id=tid,
+                        played=row["playedGames"],
+                        won=row["won"],
+                        drawn=row["draw"],
+                        lost=row["lost"],
+                        goals_for=row["goalsFor"],
+                        goals_against=row["goalsAgainst"],
+                        goal_difference=row["goalDifference"],
+                        points=row["points"],
+                        form=row.get("form", ""),
+                    ))
+                except KeyError:
+                    continue
         return standings
+
+    def get_competition_teams(self, competition_code: str) -> dict[str, int]:
+        """Return {team_name: team_id} for all teams registered in a competition."""
+        data = self._get(f"competitions/{competition_code}/teams")
+        return {
+            t["name"]: t["id"]
+            for t in data.get("teams", [])
+            if t.get("name") and t.get("id")
+        }
 
     # ── Team form ─────────────────────────────────────────────────────────────
 

@@ -412,6 +412,7 @@ def _fixture_list():
                 "matchday": f.matchday,
                 "stage": f.stage,
                 "status": f.status,
+                "is_neutral": f.is_neutral,
             }
             for f in fixtures
         ]
@@ -591,6 +592,7 @@ def predict():
             matchday=fixture_data.get("matchday"),
             stage=fixture_data.get("stage"),
             status=fixture_data.get("status", "SCHEDULED"),
+            is_neutral=fixture_data.get("is_neutral", False),
         )
 
         prediction = get_orch().predict_fixture(fixture)

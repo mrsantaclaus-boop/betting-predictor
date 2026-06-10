@@ -66,6 +66,8 @@ class BettingOrchestrator:
         self.fbref = FBrefScraper()
         self.mf_client = MiroFishClient()
         self.parser = ResultParser()
+        # Cache of fd.org team IDs keyed by competition code (ESPN IDs ≠ fd.org IDs)
+        self._fd_competition_teams: dict[str, dict[str, int]] = {}
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -287,28 +289,58 @@ class BettingOrchestrator:
     def _build_match_report(self, fixture: Fixture) -> MatchReport:
         code = fixture.competition_code
 
-        # Team forms (from football-data.org)
+        # For ESPN-sourced competitions (WC, ECL, BSA), fixture team IDs are ESPN
+        # internal IDs which don't match fd.org IDs. Resolve the correct fd.org IDs
+        # via the competition standings (or team list as fallback) so that form
+        # lookups return real data instead of a 404 / wrong team.
+        home_team_id = fixture.home_team_id
+        away_team_id = fixture.away_team_id
+        home_standing = away_standing = None
+
+        if code in self._ESPN_CODES:
+            try:
+                standings = self.fd_client.get_standings(code)
+                home_standing = self._fuzzy_find_standing(fixture.home_team, standings)
+                away_standing = self._fuzzy_find_standing(fixture.away_team, standings)
+                if home_standing:
+                    home_team_id = home_standing.team_id
+                if away_standing:
+                    away_team_id = away_standing.team_id
+            except Exception:
+                pass
+
+            # If standings didn't cover both teams (pre-tournament or new comp),
+            # fall back to the /competitions/{code}/teams endpoint.
+            if home_team_id == fixture.home_team_id or away_team_id == fixture.away_team_id:
+                fd_teams = self._get_fd_teams_for_competition(code)
+                if home_team_id == fixture.home_team_id:
+                    fd_id = self._match_team_name(fixture.home_team, fd_teams)
+                    if fd_id:
+                        home_team_id = fd_id
+                if away_team_id == fixture.away_team_id:
+                    fd_id = self._match_team_name(fixture.away_team, fd_teams)
+                    if fd_id:
+                        away_team_id = fd_id
+
+        # Team forms (from football-data.org, using resolved IDs)
         home_form = self._safe(
-            lambda: self.fd_client.get_team_form(
-                fixture.home_team_id, fixture.home_team
-            ),
+            lambda: self.fd_client.get_team_form(home_team_id, fixture.home_team),
             default_factory=lambda: self._empty_form(fixture.home_team),
         )
         away_form = self._safe(
-            lambda: self.fd_client.get_team_form(
-                fixture.away_team_id, fixture.away_team
-            ),
+            lambda: self.fd_client.get_team_form(away_team_id, fixture.away_team),
             default_factory=lambda: self._empty_form(fixture.away_team),
         )
 
-        # Standings
-        try:
-            standings = self.fd_client.get_standings(code)
-            standings_map = {s.team_name: s for s in standings}
-            home_standing = standings_map.get(fixture.home_team)
-            away_standing = standings_map.get(fixture.away_team)
-        except Exception:
-            home_standing = away_standing = None
+        # Standings for non-ESPN competitions (already fetched above for ESPN)
+        if code not in self._ESPN_CODES:
+            try:
+                standings = self.fd_client.get_standings(code)
+                standings_map = {s.team_name: s for s in standings}
+                home_standing = standings_map.get(fixture.home_team)
+                away_standing = standings_map.get(fixture.away_team)
+            except Exception:
+                home_standing = away_standing = None
 
         # Head to head
         h2h = self._safe(
@@ -327,24 +359,6 @@ class BettingOrchestrator:
         away_stats = self._merge_stats(
             fixture.away_team, code, away_form, fbref_map
         )
-
-        # For WC, when no current tournament stats exist (tournament not yet started
-        # or FBref page empty), fall back to each team's qualifying campaign stats
-        # as a proxy for team quality.
-        if code == "WC":
-            for stats, name in ((home_stats, fixture.home_team), (away_stats, fixture.away_team)):
-                if stats.games_played == 0:
-                    wcq = self._safe(lambda n=name: self.fbref.get_wcq_stats(n))
-                    if wcq and wcq.games_played > 0:
-                        stats.goals_scored_pg  = wcq.goals_scored_pg
-                        stats.goals_conceded_pg = wcq.goals_conceded_pg
-                        stats.xg_pg            = wcq.xg_pg
-                        stats.xga_pg           = wcq.xga_pg
-                        stats.games_played     = wcq.games_played
-                        stats.corners_pg       = wcq.corners_pg
-                        stats.yellow_cards_pg  = wcq.yellow_cards_pg
-                        stats.red_cards_pg     = wcq.red_cards_pg
-                        logger.info("WC fallback: using WCQ stats for %s", name)
 
         # If stats are still empty but standings data is available (in-tournament),
         # use standings goals for/against to differentiate teams.
@@ -394,6 +408,44 @@ class BettingOrchestrator:
             home_injuries=home_injuries,
             away_injuries=away_injuries,
         )
+
+    # ── WC / ESPN team-ID resolution ──────────────────────────────────────────
+
+    def _get_fd_teams_for_competition(self, code: str) -> dict[str, int]:
+        """Lazy-load and cache fd.org team IDs for an ESPN-sourced competition."""
+        if code not in self._fd_competition_teams:
+            teams = self._safe(
+                lambda: self.fd_client.get_competition_teams(code),
+                default_factory=dict,
+            )
+            self._fd_competition_teams[code] = teams or {}
+        return self._fd_competition_teams[code]
+
+    @staticmethod
+    def _fuzzy_find_standing(team_name: str, standings: list):
+        """Return the first Standing whose name shares a keyword with team_name."""
+        stop = {"fc", "ac", "as", "ss", "sc", "cf", "the", "de", "1."}
+        kw = {w.lower() for w in team_name.split() if len(w) > 2 and w.lower() not in stop}
+        if not kw:
+            return None
+        for s in standings:
+            s_kw = {w.lower() for w in s.team_name.split() if len(w) > 2 and w.lower() not in stop}
+            if kw & s_kw:
+                return s
+        return None
+
+    @staticmethod
+    def _match_team_name(team_name: str, teams: dict[str, int]) -> Optional[int]:
+        """Find a team ID by exact then keyword-fuzzy name match."""
+        if team_name in teams:
+            return teams[team_name]
+        stop = {"fc", "ac", "as", "ss", "sc", "cf", "the", "de"}
+        kw = {w.lower() for w in team_name.split() if len(w) > 2 and w.lower() not in stop}
+        for name, tid in teams.items():
+            name_kw = {w.lower() for w in name.split() if len(w) > 2 and w.lower() not in stop}
+            if kw & name_kw:
+                return tid
+        return None
 
     def _merge_stats(self, team_name: str, code: str, form, fbref_map: dict) -> TeamStats:
         """Combine football-data.org form data with FBref detailed stats."""
