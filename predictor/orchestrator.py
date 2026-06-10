@@ -394,7 +394,7 @@ class BettingOrchestrator:
                         logger.info("WCQ fallback: %s — %d games (via %s)",
                                     name, wcq.games_played, wcq.competition)
 
-        # ESPN results fallback (covers once group stage matches start).
+        # ESPN results fallback (secondary — covers once group stage matches start).
         if code == "WC" and (home_stats.games_played == 0 or away_stats.games_played == 0):
             espn_results = self._get_espn_wc_results()
             for stats, name in ((home_stats, fixture.home_team), (away_stats, fixture.away_team)):
