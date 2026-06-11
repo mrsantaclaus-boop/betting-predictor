@@ -421,6 +421,12 @@ class BettingOrchestrator:
                         stats.xg_pg             = rating[0]
                         stats.xga_pg            = rating[1]
                         stats.games_played      = rating[2]
+                        # Use WC league averages for corners/cards so the
+                        # Poisson models produce realistic outputs (not 98.5% under)
+                        if stats.corners_pg == 0.0:
+                            stats.corners_pg = 4.4
+                        if stats.yellow_cards_pg == 0.0:
+                            stats.yellow_cards_pg = 2.0
                         logger.info("FIFA ranking fallback for %s: %.2f GF, %.2f GA",
                                     name, rating[0], rating[1])
 
