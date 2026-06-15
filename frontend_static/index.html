@@ -264,11 +264,6 @@
       <div style="display:flex;gap:8px">
         <button :class="['btn', predSort==='goals' ? '' : 'ghost']" @click="predSort = predSort==='goals' ? 'date' : 'goals'"
           title="Sort by Over 2.5 probability">⚽ Sort by Goals</button>
-        <button class="btn danger" :disabled="resetting || unresolvedCount===0" @click="resetUnplayed"
-          :title="'Delete ' + unresolvedCount + ' pending prediction(s) so they can be re-run'">
-          <span v-if="resetting"><span class="spin xs"></span> Resetting…</span>
-          <span v-else>🗑 Reset Unplayed ({{ unresolvedCount }})</span>
-        </button>
         <button class="btn" :disabled="syncing" @click="syncResults">
           <span v-if="syncing"><span class="spin xs"></span> Syncing…</span>
           <span v-else>↺ Sync Results</span>
@@ -731,7 +726,6 @@ createApp({
     const edgeData = ref(null)
     const loadingEdge = ref(false)
     const syncing = ref(false)
-    const resetting = ref(false)
     const edgeComp = ref('ALL')
     const valueBets = ref([])
     const loadingValue = ref(false)
@@ -994,17 +988,6 @@ createApp({
       return 'cl'
     }
 
-    async function resetUnplayed() {
-      if (!confirm(`Delete all ${unresolvedCount.value} pending prediction(s)? They will be re-generated fresh when you click "Run AI Prediction" again.`)) return
-      resetting.value = true
-      try {
-        const r = await fetch(`${API}/predictions/unplayed`, { method: 'DELETE' })
-        const d = await r.json()
-        await loadPredictions()
-      } catch(e) { alert(`Reset failed: ${e.message}`) }
-      finally { resetting.value = false }
-    }
-
     async function syncResults() {
       syncing.value = true
       try {
@@ -1055,9 +1038,9 @@ createApp({
       standComp, activePred, edgeData, loadingEdge, syncing, resolvedCount, unresolvedCount,
       valueBets, loadingValue, edgeComp, activeEdgeData, calibMkt, calibMkts, calibBuckets,
       modelCalibData, modelCalibMkt, modelCalibSrc, modelCalibMkts, modelCalibMktData,
-      availableModelCalibSrcs, modelCalibBuckets, resetting,
+      availableModelCalibSrcs, modelCalibBuckets,
       predSort, sortedPredictions,
-      loadFixtures, loadStandings, openFixture, runPred, loadEdge, syncResults, loadValueBets, resetUnplayed,
+      loadFixtures, loadStandings, openFixture, runPred, loadEdge, syncResults, loadValueBets,
       hasPred, hasValueMarket, isHighGoals, mktLabel, fmt, fmtShort, compClass, compCodeFromLabel,
       mkts, resultLabel, resultPct, compBadgeLabel
     }
