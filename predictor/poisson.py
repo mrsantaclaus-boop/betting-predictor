@@ -63,8 +63,8 @@ MAX_GOALS = 6
 # are larger, so the pure Poisson signal is more reliable for these scorelines.
 _DC_RHO = -0.13
 _DC_RHO_BY_COMP: dict[str, float] = {
-    "WC":  -0.05,
-    "USC": -0.05,
+    "WC":  0.0,   # pure Poisson for WC: DC correction inflates 1-1 above 1-0
+    "USC": 0.0,   # same for Super Cup (neutral venue, one-off)
 }
 
 
