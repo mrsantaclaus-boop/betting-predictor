@@ -100,4 +100,37 @@ WC_STRENGTH: dict[str, tuple[float, float, int]] = {
     "Guatemala":              (1.08, 1.30, 30),
     "Suriname":               (1.05, 1.32, 30),
     "Guyana":                 (1.05, 1.35, 30),
+    # CONCACAF — WC 2026 qualifiers not in earlier tiers
+    "Curacao":                (0.98, 1.65, 30),
+    "Curaçao":                (0.98, 1.65, 30),  # alternate spelling
+    "Martinique":             (0.95, 1.60, 30),
+    # AFC — weaker qualifiers for expanded WC 2026
+    "Indonesia":              (1.05, 1.50, 30),
+    "Philippines":            (1.00, 1.55, 30),
+    "Bahrain":                (1.05, 1.42, 30),
+    "Thailand":               (1.05, 1.45, 30),
+    "Oman":                   (1.08, 1.38, 30),
+    "Kyrgyzstan":             (0.95, 1.55, 30),
+    "Myanmar":                (0.88, 1.70, 30),
+    "Vietnam":                (1.00, 1.50, 30),
+    "Chinese Taipei":         (0.75, 1.90, 30),
+    "China PR":               (1.00, 1.45, 30),
+    "China":                  (1.00, 1.45, 30),
+    "India":                  (0.85, 1.65, 30),
+    # Africa — weaker qualifiers
+    "Tanzania":               (1.05, 1.40, 30),
+    "Comoros":                (1.00, 1.45, 30),
+    "Namibia":                (0.95, 1.50, 30),
+    "Zambia":                 (1.08, 1.40, 30),
+    "Cape Verde Islands":     (1.20, 1.18, 30),  # alternate name
+    "Equatorial Guinea":      (1.02, 1.45, 30),
+    "Sudan":                  (0.95, 1.55, 30),
+    "Libya":                  (0.98, 1.50, 30),
+    # OFC
+    "New Caledonia":          (0.80, 1.75, 30),
+    "Papua New Guinea":       (0.75, 1.80, 30),
+    "Tahiti":                 (0.75, 1.85, 30),
+    "Vanuatu":                (0.70, 1.90, 30),
+    "Solomon Islands":        (0.78, 1.80, 30),
+    "Fiji":                   (0.82, 1.75, 30),
 }

@@ -57,8 +57,15 @@ _DEFAULT_HOME_ADVANTAGE = 1.10
 # Compute grid up to MAX_GOALS × MAX_GOALS
 MAX_GOALS = 6
 
-# Dixon-Coles ρ — correction for joint low-score outcomes (D&C 1997)
+# Dixon-Coles ρ — correction for joint low-score outcomes (D&C 1997).
+# League football: -0.13 (0-0 and 1-1 more common than pure Poisson predicts).
+# Tournament/one-off matches (WC, USC): smaller correction because quality gaps
+# are larger, so the pure Poisson signal is more reliable for these scorelines.
 _DC_RHO = -0.13
+_DC_RHO_BY_COMP: dict[str, float] = {
+    "WC":  -0.05,
+    "USC": -0.05,
+}
 
 
 # ── Core math ──────────────────────────────────────────────────────────────────
@@ -308,10 +315,12 @@ def compute_poisson(
     lambda_home = max(0.20, min(lambda_home, 5.0))
     lambda_away = max(0.20, min(lambda_away, 5.0))
 
+    rho = _DC_RHO_BY_COMP.get(competition_code, _DC_RHO)
+
     # Raw independent Poisson grid
     grid = [
         [_poisson_pmf(h, lambda_home) * _poisson_pmf(a, lambda_away)
-         * _dixon_coles_tau(h, a, lambda_home, lambda_away, _DC_RHO)
+         * _dixon_coles_tau(h, a, lambda_home, lambda_away, rho)
          for a in range(MAX_GOALS + 1)]
         for h in range(MAX_GOALS + 1)
     ]

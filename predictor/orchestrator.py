@@ -375,10 +375,14 @@ class BettingOrchestrator:
                 if stats.goals_conceded_pg == 0.0:
                     stats.goals_conceded_pg = round(standing.goals_against / gp, 2)
 
-        # WC fallback chain when tournament hasn't started yet or no stats available.
-        # 1. FBref WCQ — uses confederation map so only 1 request per team (~4s each).
-        # 2. ESPN historical results — covers any finished WC/WCQ games on ESPN.
-        if code == "WC" and (home_stats.games_played == 0 or away_stats.games_played == 0):
+        # WC: two-phase approach.
+        # Phase 1 — fill zeros via WCQ/ESPN for teams with no WC data at all.
+        # Phase 2 — ALWAYS blend every WC team with their FIFA-ranking prior
+        #            so that strength differences survive even when only 1-2
+        #            group-stage games are available (small samples otherwise
+        #            collapse everyone to the 1.20 league average → 1-1 output).
+        if code == "WC":
+            # Phase 1: WCQ fallback for teams with 0 WC games
             for stats, name in ((home_stats, fixture.home_team), (away_stats, fixture.away_team)):
                 if stats.games_played == 0:
                     wcq = self._safe(lambda n=name: self.fbref.get_wcq_stats(n))
@@ -394,41 +398,64 @@ class BettingOrchestrator:
                         logger.info("WCQ fallback: %s — %d games (via %s)",
                                     name, wcq.games_played, wcq.competition)
 
-        # ESPN results fallback (secondary — covers once group stage matches start).
-        if code == "WC" and (home_stats.games_played == 0 or away_stats.games_played == 0):
-            espn_results = self._get_espn_wc_results()
-            for stats, name in ((home_stats, fixture.home_team), (away_stats, fixture.away_team)):
-                if stats.games_played == 0:
-                    self._fill_stats_from_espn_results(stats, name, espn_results)
+            # Phase 1b: ESPN historical results (for teams still at 0)
+            if home_stats.games_played == 0 or away_stats.games_played == 0:
+                espn_results = self._get_espn_wc_results()
+                for stats, name in ((home_stats, fixture.home_team), (away_stats, fixture.away_team)):
+                    if stats.games_played == 0:
+                        self._fill_stats_from_espn_results(stats, name, espn_results)
 
-        # Static FIFA-ranking-based ratings — guaranteed fallback when every
-        # external source fails (API tier restrictions, FBref blocked, etc.).
-        if code == "WC" and (home_stats.games_played == 0 or away_stats.games_played == 0):
+            # Phase 2: blend ALL WC teams with their FIFA-ranking prior.
+            # Prior weight = r_virtual (30 virtual games by default), so:
+            #   blended = (r_virtual * prior + gp * actual) / (r_virtual + gp)
+            # With gp=0 the prior takes full effect; with gp=30 it's 50/50.
+            # Teams with no entry in WC_STRENGTH but still gp==0 get league avg.
             from predictor.wc_team_ratings import WC_STRENGTH
             for stats, name in ((home_stats, fixture.home_team), (away_stats, fixture.away_team)):
-                if stats.games_played == 0:
-                    rating = WC_STRENGTH.get(name)
-                    if not rating:
-                        # Fuzzy: find by shared keyword
-                        kw = {w.lower() for w in name.split() if len(w) > 3}
-                        for known, r in WC_STRENGTH.items():
-                            if kw & {w.lower() for w in known.split() if len(w) > 3}:
-                                rating = r
-                                break
-                    if rating:
-                        stats.goals_scored_pg   = rating[0]
-                        stats.goals_conceded_pg  = rating[1]
-                        stats.xg_pg             = rating[0]
-                        stats.xga_pg            = rating[1]
-                        stats.games_played      = rating[2]
-                        # Use WC league averages for corners/cards so the
-                        # Poisson models produce realistic outputs (not 98.5% under)
+                rating = WC_STRENGTH.get(name)
+                if not rating:
+                    kw = {w.lower() for w in name.split() if len(w) > 3}
+                    for known, r in WC_STRENGTH.items():
+                        if kw & {w.lower() for w in known.split() if len(w) > 3}:
+                            rating = r
+                            break
+
+                if rating:
+                    r_scored, r_conceded, r_virtual = rating
+                    gp = stats.games_played
+                    total = r_virtual + gp
+                    if gp > 0:
+                        actual_att = stats.xg_pg if stats.xg_pg > 0 else stats.goals_scored_pg
+                        actual_def = stats.xga_pg if stats.xga_pg > 0 else stats.goals_conceded_pg
+                        stats.goals_scored_pg   = round((r_virtual * r_scored   + gp * stats.goals_scored_pg)  / total, 2)
+                        stats.goals_conceded_pg = round((r_virtual * r_conceded + gp * stats.goals_conceded_pg) / total, 2)
+                        stats.xg_pg  = round((r_virtual * r_scored   + gp * (actual_att  or r_scored))   / total, 2)
+                        stats.xga_pg = round((r_virtual * r_conceded + gp * (actual_def  or r_conceded)) / total, 2)
+                        logger.info("WC prior blend %s: %d real + %d virtual → att=%.2f def=%.2f",
+                                    name, gp, r_virtual, stats.xg_pg, stats.xga_pg)
+                    else:
+                        stats.goals_scored_pg   = r_scored
+                        stats.goals_conceded_pg = r_conceded
+                        stats.xg_pg             = r_scored
+                        stats.xga_pg            = r_conceded
                         if stats.corners_pg == 0.0:
                             stats.corners_pg = 4.4
                         if stats.yellow_cards_pg == 0.0:
                             stats.yellow_cards_pg = 2.0
-                        logger.info("FIFA ranking fallback for %s: %.2f GF, %.2f GA",
-                                    name, rating[0], rating[1])
+                        logger.info("FIFA ranking fallback %s: %.2f GF, %.2f GA",
+                                    name, r_scored, r_conceded)
+                    stats.games_played = total
+                elif stats.games_played == 0:
+                    # Unknown team, no external data → use WC league average
+                    stats.goals_scored_pg   = 1.20
+                    stats.goals_conceded_pg = 1.20
+                    stats.xg_pg             = 1.20
+                    stats.xga_pg            = 1.20
+                    stats.games_played      = 8
+                    if stats.corners_pg == 0.0:
+                        stats.corners_pg = 4.4
+                    if stats.yellow_cards_pg == 0.0:
+                        stats.yellow_cards_pg = 2.0
 
         # BTTS / clean sheet rates from FBref schedule
         btts_data = self._safe(
