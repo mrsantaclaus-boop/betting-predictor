@@ -70,6 +70,8 @@ class BettingOrchestrator:
         self._fd_competition_teams: dict[str, dict[str, int]] = {}
         # Cache of ESPN WC+WCQ results for team stats fallback
         self._espn_wc_results_cache: Optional[list] = None
+        # Cache of aggregated per-team WC stats from ESPN match summaries
+        self._espn_wc_team_stats_cache: Optional[dict] = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -398,12 +400,40 @@ class BettingOrchestrator:
                         logger.info("WCQ fallback: %s — %d games (via %s)",
                                     name, wcq.games_played, wcq.competition)
 
-            # Phase 1b: ESPN historical results (for teams still at 0)
+            # Phase 1b: ESPN match summaries — rich per-team stats from WC games played
+            # (shots, corners, cards, xG where available). Falls back to goals-only.
             if home_stats.games_played == 0 or away_stats.games_played == 0:
-                espn_results = self._get_espn_wc_results()
+                espn_wc_stats = self._get_espn_wc_team_stats()
                 for stats, name in ((home_stats, fixture.home_team), (away_stats, fixture.away_team)):
                     if stats.games_played == 0:
-                        self._fill_stats_from_espn_results(stats, name, espn_results)
+                        espn_ts = espn_wc_stats.get(name)
+                        if not espn_ts:
+                            # Fuzzy match
+                            kw = {w.lower() for w in name.split() if len(w) > 3}
+                            for ename, ets in espn_wc_stats.items():
+                                if kw & {w.lower() for w in ename.split() if len(w) > 3}:
+                                    espn_ts = ets
+                                    break
+                        if espn_ts and espn_ts.games_played > 0:
+                            stats.games_played      = espn_ts.games_played
+                            stats.goals_scored_pg   = espn_ts.goals_scored_pg
+                            stats.goals_conceded_pg = espn_ts.goals_conceded_pg
+                            if espn_ts.xg_pg > 0:
+                                stats.xg_pg = espn_ts.xg_pg
+                            if espn_ts.corners_pg > 0:
+                                stats.corners_pg = espn_ts.corners_pg
+                            if espn_ts.yellow_cards_pg > 0:
+                                stats.yellow_cards_pg = espn_ts.yellow_cards_pg
+                            if espn_ts.red_cards_pg > 0:
+                                stats.red_cards_pg = espn_ts.red_cards_pg
+                            logger.info("ESPN WC match stats for %s: %d games "
+                                        "%.2f GF %.2f GA", name,
+                                        espn_ts.games_played, espn_ts.goals_scored_pg,
+                                        espn_ts.goals_conceded_pg)
+                        else:
+                            # Fallback: goals only from historical results
+                            espn_results = self._get_espn_wc_results()
+                            self._fill_stats_from_espn_results(stats, name, espn_results)
 
             # Phase 2: blend ALL WC teams with their FIFA-ranking prior.
             # Prior weight = r_virtual (30 virtual games by default), so:
@@ -517,6 +547,45 @@ class BettingOrchestrator:
             if kw & s_kw:
                 return s
         return None
+
+    def _get_espn_wc_team_stats(self) -> dict:
+        """
+        Fetch and cache aggregated per-team stats from all completed WC matches
+        (via ESPN summary API). Returns {team_name: TeamStats} with real WC 2026 data.
+        """
+        if self._espn_wc_team_stats_cache is None:
+            raw = self._safe(
+                lambda: self.espn_client.get_wc_team_stats("WC"),
+                default_factory=dict,
+            ) or {}
+            result = {}
+            for team, data in raw.items():
+                n = len(data["scored"])
+                if n == 0:
+                    continue
+                def avg(lst): return round(sum(lst) / len(lst), 2) if lst else 0.0
+                from football.models import TeamStats
+                ts = TeamStats(
+                    team_name=team,
+                    competition="WC",
+                    games_played=n,
+                    goals_scored_pg=avg(data["scored"]),
+                    goals_conceded_pg=avg(data["conceded"]),
+                    xg_pg=avg(data["xg"]) if any(x > 0 for x in data["xg"]) else 0.0,
+                    xga_pg=0.0,
+                    shots_pg=avg(data["shots"]),
+                    shots_on_target_pg=avg(data["shots_ot"]),
+                    corners_pg=avg(data["corners"]),
+                    yellow_cards_pg=avg(data["yellow"]),
+                    red_cards_pg=avg(data["red"]),
+                )
+                result[team] = ts
+                logger.info("ESPN WC stats for %s: %d games, %.2f GF, %.2f GA "
+                            "(xg=%.2f, corners=%.2f, yellow=%.2f)",
+                            team, n, ts.goals_scored_pg, ts.goals_conceded_pg,
+                            ts.xg_pg, ts.corners_pg, ts.yellow_cards_pg)
+            self._espn_wc_team_stats_cache = result
+        return self._espn_wc_team_stats_cache
 
     def _get_espn_wc_results(self) -> list:
         """Aggregate ESPN results across WC + all WCQ competitions (cached per instance)."""
