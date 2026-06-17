@@ -71,7 +71,8 @@ class BettingOrchestrator:
         # Cache of ESPN WC+WCQ results for team stats fallback
         self._espn_wc_results_cache: Optional[list] = None
         # Cache of aggregated per-team WC stats from ESPN match summaries
-        self._espn_wc_team_stats_cache: Optional[dict] = None
+        # Tuple of (data, fetched_at) so we can expire after WC_STATS_TTL_HOURS
+        self._espn_wc_team_stats_cache: Optional[tuple] = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -548,44 +549,55 @@ class BettingOrchestrator:
                 return s
         return None
 
+    _WC_STATS_TTL_HOURS = 4  # refresh WC team stats every 4 hours
+
     def _get_espn_wc_team_stats(self) -> dict:
         """
         Fetch and cache aggregated per-team stats from all completed WC matches
-        (via ESPN summary API). Returns {team_name: TeamStats} with real WC 2026 data.
+        (via ESPN summary API). Cache expires every 4 hours so new group-stage
+        results are picked up automatically without a server restart.
         """
-        if self._espn_wc_team_stats_cache is None:
-            raw = self._safe(
-                lambda: self.espn_client.get_wc_team_stats("WC"),
-                default_factory=dict,
-            ) or {}
-            result = {}
-            for team, data in raw.items():
-                n = len(data["scored"])
-                if n == 0:
-                    continue
-                def avg(lst): return round(sum(lst) / len(lst), 2) if lst else 0.0
-                from football.models import TeamStats
-                ts = TeamStats(
-                    team_name=team,
-                    competition="WC",
-                    games_played=n,
-                    goals_scored_pg=avg(data["scored"]),
-                    goals_conceded_pg=avg(data["conceded"]),
-                    xg_pg=avg(data["xg"]) if any(x > 0 for x in data["xg"]) else 0.0,
-                    xga_pg=0.0,
-                    shots_pg=avg(data["shots"]),
-                    shots_on_target_pg=avg(data["shots_ot"]),
-                    corners_pg=avg(data["corners"]),
-                    yellow_cards_pg=avg(data["yellow"]),
-                    red_cards_pg=avg(data["red"]),
-                )
-                result[team] = ts
-                logger.info("ESPN WC stats for %s: %d games, %.2f GF, %.2f GA "
-                            "(xg=%.2f, corners=%.2f, yellow=%.2f)",
-                            team, n, ts.goals_scored_pg, ts.goals_conceded_pg,
-                            ts.xg_pg, ts.corners_pg, ts.yellow_cards_pg)
-            self._espn_wc_team_stats_cache = result
-        return self._espn_wc_team_stats_cache
+        import time as _time
+        now = _time.monotonic()
+        if self._espn_wc_team_stats_cache is not None:
+            data, fetched_at = self._espn_wc_team_stats_cache
+            age_hours = (now - fetched_at) / 3600
+            if age_hours < self._WC_STATS_TTL_HOURS:
+                return data
+            logger.info("WC team stats cache expired (%.1fh old) — refreshing", age_hours)
+
+        raw = self._safe(
+            lambda: self.espn_client.get_wc_team_stats("WC"),
+            default_factory=dict,
+        ) or {}
+        result = {}
+        for team, data in raw.items():
+            n = len(data["scored"])
+            if n == 0:
+                continue
+            def avg(lst): return round(sum(lst) / len(lst), 2) if lst else 0.0
+            from football.models import TeamStats
+            ts = TeamStats(
+                team_name=team,
+                competition="WC",
+                games_played=n,
+                goals_scored_pg=avg(data["scored"]),
+                goals_conceded_pg=avg(data["conceded"]),
+                xg_pg=avg(data["xg"]) if any(x > 0 for x in data["xg"]) else 0.0,
+                xga_pg=0.0,
+                shots_pg=avg(data["shots"]),
+                shots_on_target_pg=avg(data["shots_ot"]),
+                corners_pg=avg(data["corners"]),
+                yellow_cards_pg=avg(data["yellow"]),
+                red_cards_pg=avg(data["red"]),
+            )
+            result[team] = ts
+            logger.info("ESPN WC stats for %s: %d games, %.2f GF, %.2f GA "
+                        "(xg=%.2f, corners=%.2f, yellow=%.2f)",
+                        team, n, ts.goals_scored_pg, ts.goals_conceded_pg,
+                        ts.xg_pg, ts.corners_pg, ts.yellow_cards_pg)
+        self._espn_wc_team_stats_cache = (result, now)
+        return result
 
     def _get_espn_wc_results(self) -> list:
         """Aggregate ESPN results across WC + all WCQ competitions (cached per instance)."""
