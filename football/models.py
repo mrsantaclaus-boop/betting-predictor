@@ -49,6 +49,9 @@ class TeamStats(BaseModel):
 
     # Season totals
     games_played: int = 0
+    # Actual games played before WC FIFA-prior virtual-game inflation.
+    # Set in orchestrator._apply_wc_priors; 0 means "not set / non-WC team".
+    real_games_played: int = 0
     clean_sheets: int = 0
     btts_count: int = 0             # Both Teams To Score
 
