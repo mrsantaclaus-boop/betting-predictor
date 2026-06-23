@@ -34,10 +34,11 @@ def test_dc_tau_high_scores_unchanged():
     assert _dixon_coles_tau(3, 2, 1.5, 1.2, -0.13) == 1.0
 
 
-def test_dc_tau_0_0_reduces_probability():
+def test_dc_tau_0_0_increases_probability():
+    # rho < 0 means 0-0 is MORE common than pure Poisson predicts.
+    # tau = 1 - lh * la * rho = 1 - 1.5*1.2*(-0.13) = 1 + 0.234 = 1.234 > 1
     tau = _dixon_coles_tau(0, 0, 1.5, 1.2, -0.13)
-    assert tau < 1.0  # rho<0 increases 0-0 (tau = 1 - lh*la*rho > 1 when rho<0)
-    # actually with rho=-0.13: tau = 1 - 1.5*1.2*(-0.13) = 1 + 0.234 = 1.234
+    assert tau > 1.0
     assert abs(tau - (1.0 - 1.5 * 1.2 * (-0.13))) < 1e-10
 
 

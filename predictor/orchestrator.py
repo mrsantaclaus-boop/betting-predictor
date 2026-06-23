@@ -475,6 +475,13 @@ class BettingOrchestrator:
                             stats.yellow_cards_pg = 2.0
                         logger.info("FIFA ranking fallback %s: %.2f GF, %.2f GA",
                                     name, r_scored, r_conceded)
+                    # Preserve actual gp so shrinkage and confidence use real data depth.
+                    # games_played is inflated to (r_virtual + gp) intentionally: the large
+                    # denominator stops Bayesian shrinkage from dragging the FIFA-blended
+                    # goals/xG values back toward the 1.20 WC league average.
+                    # corners_pg and cards_pg are NOT FIFA-blended, so they need the real
+                    # gp in shrinkage — stored in real_games_played for that purpose.
+                    stats.real_games_played = gp
                     stats.games_played = total
                 elif stats.games_played == 0:
                     # Unknown team, no external data → use WC league average
@@ -797,7 +804,10 @@ class BettingOrchestrator:
                 data_score += 0.05
             if getattr(stats, "corners_pg", 0.0) > 0:
                 data_score += 0.025
-            gp = getattr(stats, "games_played", 0)
+            # Use real_games_played when available (WC teams have games_played inflated
+            # by r_virtual=30 virtual games from the FIFA prior blend).
+            real_gp = getattr(stats, "real_games_played", 0)
+            gp = real_gp if real_gp > 0 else getattr(stats, "games_played", 0)
             if gp >= 10:
                 data_score += 0.075
             elif gp >= 5:

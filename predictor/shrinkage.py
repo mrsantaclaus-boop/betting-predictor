@@ -52,6 +52,12 @@ _SHRINK_FIELDS = [
     "corners_pg", "yellow_cards_pg", "red_cards_pg",
 ]
 
+# Goals/xG use the (possibly inflated) games_played so that Bayesian shrinkage
+# does not fight the FIFA prior blend applied upstream for WC teams.
+# Corners and cards are NOT covered by the FIFA prior, so they must use the
+# real (un-inflated) game count stored in real_games_played.
+_GOALS_FIELDS = {"goals_scored_pg", "goals_conceded_pg", "xg_pg", "xga_pg"}
+
 
 def shrink(actual: float, league_avg: float, games_played: int) -> float:
     """Return the shrinkage-adjusted value of a per-game stat."""
@@ -68,8 +74,14 @@ def apply_shrinkage(stats: TeamStats, competition_code: str) -> None:
     """Shrink all key per-game stats in-place toward the league average."""
     avgs = LEAGUE_AVERAGES.get(competition_code, _DEFAULT_AVERAGES)
     gp = stats.games_played
+    # real_games_played is set by the WC orchestrator before inflating games_played
+    # with r_virtual virtual games.  For non-WC teams it is 0 (default).
+    real_gp = getattr(stats, "real_games_played", 0)
+    # When real_gp is not set (0), fall back to gp so non-WC paths are unchanged.
+    effective_non_goals_gp = real_gp if real_gp > 0 else gp
     for field in _SHRINK_FIELDS:
         actual = getattr(stats, field, 0.0)
         avg = avgs.get(field, 0.0)
         if avg > 0:
-            setattr(stats, field, shrink(actual, avg, gp))
+            effective_gp = gp if field in _GOALS_FIELDS else effective_non_goals_gp
+            setattr(stats, field, shrink(actual, avg, effective_gp))
