@@ -589,6 +589,55 @@
         </div>
       </div>
 
+      <!-- Confidence Threshold Analysis -->
+      <div v-if="confidenceAnalysis && activePredHistory.length >= 3" style="margin-top:32px">
+        <div class="sec-title">🎰 Quando fidarsi del modello
+          <span class="dim" style="font-size:.75rem;margin-left:4px">hit rate reale per soglia di confidenza</span>
+        </div>
+        <p class="dim" style="font-size:.8rem;margin-bottom:14px">
+          Quando il modello prevede ≥60% (o ≥80%), quante volte ha ragione davvero? Più alto l'hit rate vs la soglia, più il modello è affidabile a quella confidenza.
+        </p>
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th style="text-align:left">Soglia</th>
+              <th>Risultato 1X2</th>
+              <th>Over 2.5</th>
+              <th>BTTS Yes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in confidenceAnalysis" :key="row.threshold">
+              <td style="text-align:left;font-weight:700">≥{{ row.threshold }}%</td>
+              <td>
+                <span v-if="row.result.n > 0">
+                  <span :class="row.result.rate >= row.threshold ? 'pos' : 'neg'" style="font-weight:700">{{ row.result.rate }}%</span>
+                  <span class="dim" style="font-size:.72rem;margin-left:4px">({{ row.result.hits }}/{{ row.result.n }})</span>
+                </span>
+                <span v-else class="dim">—</span>
+              </td>
+              <td>
+                <span v-if="row.over25.n > 0">
+                  <span :class="row.over25.rate >= row.threshold ? 'pos' : 'neg'" style="font-weight:700">{{ row.over25.rate }}%</span>
+                  <span class="dim" style="font-size:.72rem;margin-left:4px">({{ row.over25.hits }}/{{ row.over25.n }})</span>
+                </span>
+                <span v-else class="dim">—</span>
+              </td>
+              <td>
+                <span v-if="row.btts.n > 0">
+                  <span :class="row.btts.rate >= row.threshold ? 'pos' : 'neg'" style="font-weight:700">{{ row.btts.rate }}%</span>
+                  <span class="dim" style="font-size:.72rem;margin-left:4px">({{ row.btts.hits }}/{{ row.btts.n }})</span>
+                </span>
+                <span v-else class="dim">—</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="dim" style="font-size:.72rem;margin-top:8px">
+          Verde = hit rate ≥ soglia (modello affidabile o addirittura conservativo) · Rosso = hit rate &lt; soglia (modello troppo ottimista a quella confidenza)
+        </p>
+      </div>
+
       <!-- Prediction History -->
       <div style="margin-top:32px">
         <div class="sec-title">📋 Storico Predictions
@@ -1151,6 +1200,25 @@ createApp({
       return Math.round(hits.length / h.length * 100)
     })
 
+    const confidenceAnalysis = computed(() => {
+      const h = activePredHistory.value
+      if (!h.length) return null
+      return [60, 70, 80].map(threshold => {
+        const resultPreds = h.filter(p => Math.max(p.home_win_pct || 0, p.draw_pct || 0, p.away_win_pct || 0) >= threshold)
+        const resultHits = resultPreds.filter(p => p.result_correct)
+        const o25Preds = h.filter(p => (p.over_2_5_pct || 0) >= threshold && p.outcomes)
+        const o25Hits = o25Preds.filter(p => p.outcomes.over_2_5)
+        const bttsPreds = h.filter(p => (p.btts_yes_pct || 0) >= threshold && p.outcomes)
+        const bttsHits = bttsPreds.filter(p => p.outcomes.btts_yes)
+        return {
+          threshold,
+          result: { n: resultPreds.length, hits: resultHits.length, rate: resultPreds.length ? Math.round(resultHits.length / resultPreds.length * 100) : null },
+          over25: { n: o25Preds.length, hits: o25Hits.length, rate: o25Preds.length ? Math.round(o25Hits.length / o25Preds.length * 100) : null },
+          btts: { n: bttsPreds.length, hits: bttsHits.length, rate: bttsPreds.length ? Math.round(bttsHits.length / bttsPreds.length * 100) : null },
+        }
+      })
+    })
+
     // activeEdgeData: overall data or per-competition slice
     const activeEdgeData = computed(() => {
       if (!edgeData.value) return null
@@ -1277,7 +1345,7 @@ createApp({
       availableModelCalibSrcs, modelCalibBuckets,
       predHistory, loadingPredHistory, activePredHistory, historyAccuracy, historyOver25Acc,
       reliabilityRanking, goalsBiasLabel, goalsBiasPositive, resultBiasLabel, resultBiasPositive,
-      bttsBiasLabel, bttsBiasPositive,
+      bttsBiasLabel, bttsBiasPositive, confidenceAnalysis,
       predSort, sortedPredictions,
       loadFixtures, loadStandings, openFixture, runPred, loadEdge, syncResults, loadValueBets,
       hasPred, hasValueMarket, isHighGoals, mktLabel, fmt, fmtShort, compClass, compCodeFromLabel,
