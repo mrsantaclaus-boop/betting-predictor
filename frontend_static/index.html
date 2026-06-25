@@ -450,6 +450,62 @@
       </table>
       <p v-if="Object.values(activeEdgeData).every(s => s.sample_size === 0)" class="state dim">No resolved predictions yet for this competition.</p>
 
+      <!-- Reliability Analysis -->
+      <div v-if="reliabilityRanking.length" style="margin-top:24px">
+        <div class="sec-title">🎯 Analisi Affidabilità
+          <span class="dim" style="font-size:.75rem;margin-left:4px">mercati ordinati per affidabilità — |edge| minore = più calibrato</span>
+        </div>
+
+        <!-- Bias summary cards -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+          <div v-if="goalsBiasLabel" style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 16px;flex:1;min-width:160px">
+            <div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:4px">Bias Gol</div>
+            <div style="font-size:.88rem;font-weight:600" :class="goalsBiasPositive ? 'pos' : 'neg'">{{ goalsBiasLabel }}</div>
+          </div>
+          <div v-if="resultBiasLabel" style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 16px;flex:1;min-width:160px">
+            <div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:4px">Bias Risultato</div>
+            <div style="font-size:.88rem;font-weight:600" :class="resultBiasPositive ? 'pos' : 'neg'">{{ resultBiasLabel }}</div>
+          </div>
+          <div v-if="bttsBiasLabel" style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 16px;flex:1;min-width:160px">
+            <div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:4px">Bias BTTS</div>
+            <div style="font-size:.88rem;font-weight:600" :class="bttsBiasPositive ? 'pos' : 'neg'">{{ bttsBiasLabel }}</div>
+          </div>
+        </div>
+
+        <!-- Reliability ranking table -->
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th style="text-align:left">#</th>
+              <th style="text-align:left">Mercato</th>
+              <th>|Edge|</th>
+              <th>Verdetto</th>
+              <th>N</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(r, i) in reliabilityRanking" :key="r.mkt">
+              <td class="dim" style="font-size:.78rem">{{ i + 1 }}</td>
+              <td style="text-align:left">{{ mktLabel(r.mkt) }}</td>
+              <td :class="r.absEdge < 5 ? 'pos' : r.absEdge > 15 ? 'neg' : ''">
+                {{ r.absEdge }}%
+              </td>
+              <td style="font-size:.82rem">
+                <span v-if="r.absEdge < 5" style="color:#3fb950">✅ Ben calibrato</span>
+                <span v-else-if="r.edge > 0 && r.absEdge >= 5 && r.absEdge < 15" style="color:#e3b341">🟡 Sottostimato</span>
+                <span v-else-if="r.edge < 0 && r.absEdge >= 5 && r.absEdge < 15" style="color:#e3b341">🟡 Sovrastimato</span>
+                <span v-else-if="r.edge > 0" style="color:#f85149">🔴 Forte sottostima</span>
+                <span v-else style="color:#f85149">🔴 Forte sovrastima</span>
+              </td>
+              <td>{{ r.n }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="dim" style="font-size:.72rem;margin-top:8px">
+          Nota: con N &lt; 30 i risultati sono indicativi. L'affidabilità cresce con più partite risolte.
+        </p>
+      </div>
+
       <!-- Calibration -->
       <div style="margin-top:28px">
         <div class="sec-title">📏 Calibration
@@ -1019,6 +1075,71 @@ createApp({
       return Math.round(h.filter(p => p.result_correct).length / h.length * 100)
     })
 
+    // Reliability ranking: markets with data sorted by |edge| ascending
+    const reliabilityRanking = computed(() => {
+      if (!activeEdgeData.value) return []
+      return Object.entries(activeEdgeData.value)
+        .filter(([, s]) => s.sample_size >= 3 && s.edge !== null)
+        .map(([mkt, s]) => ({ mkt, edge: s.edge, absEdge: Math.abs(s.edge), n: s.sample_size }))
+        .sort((a, b) => a.absEdge - b.absEdge)
+    })
+
+    // Goals bias: compare Over 2.5 actual vs implied
+    const goalsBiasLabel = computed(() => {
+      const d = activeEdgeData.value
+      if (!d) return null
+      const o25 = d['over_2_5']
+      const o35 = d['over_3_5']
+      if (o25 && o25.sample_size >= 3) {
+        const edge = o25.edge
+        if (Math.abs(edge) < 3) return `Gol calibrati (edge ${edge > 0 ? '+' : ''}${edge}%)`
+        return edge > 0
+          ? `Più gol del previsto (+${edge}% su Over 2.5${o35 && o35.sample_size >= 3 ? ', +' + o35.edge + '% su Over 3.5' : ''})`
+          : `Meno gol del previsto (${edge}% su Over 2.5)`
+      }
+      return null
+    })
+    const goalsBiasPositive = computed(() => {
+      const d = activeEdgeData.value
+      return d && d['over_2_5'] && d['over_2_5'].edge > 0
+    })
+
+    // Result bias: Home Win vs Away Win edge
+    const resultBiasLabel = computed(() => {
+      const d = activeEdgeData.value
+      if (!d) return null
+      const hw = d['home_win'], aw = d['away_win']
+      if (hw && hw.sample_size >= 3 && aw && aw.sample_size >= 3) {
+        if (Math.abs(hw.edge) < 3 && Math.abs(aw.edge) < 3) return 'Risultati calibrati'
+        const hwStr = `Home Win ${hw.edge > 0 ? '+' : ''}${hw.edge}%`
+        const awStr = `Away Win ${aw.edge > 0 ? '+' : ''}${aw.edge}%`
+        return `${hwStr} · ${awStr}`
+      }
+      return null
+    })
+    const resultBiasPositive = computed(() => {
+      const d = activeEdgeData.value
+      return d && d['home_win'] && d['home_win'].edge > 0
+    })
+
+    // BTTS bias
+    const bttsBiasLabel = computed(() => {
+      const d = activeEdgeData.value
+      if (!d) return null
+      const by = d['btts_yes']
+      if (by && by.sample_size >= 3) {
+        if (Math.abs(by.edge) < 3) return `BTTS calibrato (edge ${by.edge > 0 ? '+' : ''}${by.edge}%)`
+        return by.edge > 0
+          ? `Più BTTS del previsto (+${by.edge}%)`
+          : `Meno BTTS del previsto (${by.edge}%)`
+      }
+      return null
+    })
+    const bttsBiasPositive = computed(() => {
+      const d = activeEdgeData.value
+      return d && d['btts_yes'] && d['btts_yes'].edge > 0
+    })
+
     const historyOver25Acc = computed(() => {
       const h = activePredHistory.value.filter(p => p.over_2_5_pct !== null)
       if (!h.length) return 0
@@ -1155,6 +1276,8 @@ createApp({
       modelCalibData, modelCalibMkt, modelCalibSrc, modelCalibMkts, modelCalibMktData,
       availableModelCalibSrcs, modelCalibBuckets,
       predHistory, loadingPredHistory, activePredHistory, historyAccuracy, historyOver25Acc,
+      reliabilityRanking, goalsBiasLabel, goalsBiasPositive, resultBiasLabel, resultBiasPositive,
+      bttsBiasLabel, bttsBiasPositive,
       predSort, sortedPredictions,
       loadFixtures, loadStandings, openFixture, runPred, loadEdge, syncResults, loadValueBets,
       hasPred, hasValueMarket, isHighGoals, mktLabel, fmt, fmtShort, compClass, compCodeFromLabel,
