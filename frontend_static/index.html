@@ -532,6 +532,86 @@
           <div v-else class="dim" style="font-size:.82rem;padding:8px 0">Nessun dato per questa sorgente ancora.</div>
         </div>
       </div>
+
+      <!-- Prediction History -->
+      <div style="margin-top:32px">
+        <div class="sec-title">📋 Storico Predictions
+          <span class="dim" style="font-size:.75rem;margin-left:4px">predictions risolte — risultato previsto vs effettivo</span>
+        </div>
+        <div v-if="loadingPredHistory" class="state loading"><div class="spin"></div>Loading…</div>
+        <div v-else-if="activePredHistory.length === 0" class="dim" style="font-size:.82rem;padding:8px 0">
+          Nessuna prediction risolta ancora per questa competizione.
+        </div>
+        <div v-else>
+          <!-- Summary row -->
+          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px">
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 16px;min-width:100px">
+              <div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:3px">Totale</div>
+              <div style="font-size:1.15rem;font-weight:700;color:#e6edf3">{{ activePredHistory.length }}</div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 16px;min-width:100px">
+              <div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:3px">Corrette</div>
+              <div style="font-size:1.15rem;font-weight:700" :class="historyAccuracy >= 50 ? 'pos' : 'neg'">
+                {{ activePredHistory.filter(p => p.result_correct).length }}
+              </div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 16px;min-width:100px">
+              <div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:3px">Accuracy</div>
+              <div style="font-size:1.15rem;font-weight:700" :class="historyAccuracy >= 50 ? 'pos' : 'neg'">
+                {{ historyAccuracy }}%
+              </div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 16px;min-width:100px">
+              <div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:3px">Over 2.5 ✓</div>
+              <div style="font-size:1.15rem;font-weight:700" :class="historyOver25Acc >= 50 ? 'pos' : 'neg'">
+                {{ historyOver25Acc }}%
+              </div>
+            </div>
+          </div>
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th style="text-align:left">Partita</th>
+                <th style="text-align:left">Comp</th>
+                <th>Score</th>
+                <th>Previsto</th>
+                <th>Effettivo</th>
+                <th>✓</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in activePredHistory" :key="p.fixture_id">
+                <td style="text-align:left;font-size:.82rem">{{ p.match_label }}</td>
+                <td style="text-align:left">
+                  <span :class="['badge', (p.competition_code||'').toLowerCase()]" style="font-size:.65rem">
+                    {{ p.competition_code || '?' }}
+                  </span>
+                </td>
+                <td style="font-weight:700;letter-spacing:.05em">
+                  {{ p.actual_score ? p.actual_score.home + '-' + p.actual_score.away : '—' }}
+                </td>
+                <td style="font-size:.82rem">
+                  <span :class="p.predicted_result === 'home_win' ? 'pos' : p.predicted_result === 'away_win' ? 'neg' : ''">
+                    {{ p.predicted_result === 'home_win' ? '1' : p.predicted_result === 'draw' ? 'X' : '2' }}
+                  </span>
+                  <span class="dim" style="font-size:.72rem;margin-left:4px">
+                    {{ p.predicted_result === 'home_win' ? p.home_win_pct : p.predicted_result === 'draw' ? p.draw_pct : p.away_win_pct }}%
+                  </span>
+                </td>
+                <td style="font-size:.82rem">
+                  <span :class="p.actual_result === 'home_win' ? 'pos' : p.actual_result === 'away_win' ? 'neg' : ''">
+                    {{ p.actual_result === 'home_win' ? '1' : p.actual_result === 'draw' ? 'X' : '2' }}
+                  </span>
+                </td>
+                <td style="font-size:1rem;text-align:center">
+                  <span v-if="p.result_correct" style="color:#3fb950">✓</span>
+                  <span v-else style="color:#f85149">✗</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -727,6 +807,8 @@ createApp({
     const loadingEdge = ref(false)
     const syncing = ref(false)
     const edgeComp = ref('ALL')
+    const predHistory = ref([])
+    const loadingPredHistory = ref(false)
     const valueBets = ref([])
     const loadingValue = ref(false)
     const calibMkt = ref('home_win')
@@ -906,6 +988,15 @@ createApp({
         if (r.ok) edgeData.value = await r.json()
       } catch {} finally { loadingEdge.value = false }
       loadModelCalib()
+      loadPredHistory()
+    }
+
+    async function loadPredHistory() {
+      loadingPredHistory.value = true
+      try {
+        const r = await fetch(`${API}/prediction-history`)
+        if (r.ok) predHistory.value = await r.json()
+      } catch {} finally { loadingPredHistory.value = false }
     }
 
     async function loadValueBets() {
@@ -915,6 +1006,29 @@ createApp({
         if (r.ok) valueBets.value = await r.json()
       } catch {} finally { loadingValue.value = false }
     }
+
+    const activePredHistory = computed(() => {
+      if (!predHistory.value.length) return []
+      if (edgeComp.value === 'ALL') return predHistory.value
+      return predHistory.value.filter(p => p.competition_code === edgeComp.value)
+    })
+
+    const historyAccuracy = computed(() => {
+      const h = activePredHistory.value
+      if (!h.length) return 0
+      return Math.round(h.filter(p => p.result_correct).length / h.length * 100)
+    })
+
+    const historyOver25Acc = computed(() => {
+      const h = activePredHistory.value.filter(p => p.over_2_5_pct !== null)
+      if (!h.length) return 0
+      const hits = h.filter(p => {
+        const predicted = p.over_2_5_pct >= 50
+        const actual = p.outcomes && p.outcomes.over_2_5
+        return predicted === actual
+      })
+      return Math.round(hits.length / h.length * 100)
+    })
 
     // activeEdgeData: overall data or per-competition slice
     const activeEdgeData = computed(() => {
@@ -996,6 +1110,7 @@ createApp({
         if (d.updated && d.updated.length > 0) {
           await loadPredictions()
           await loadEdge()
+          await loadPredHistory()
         }
       } catch {} finally { syncing.value = false }
     }
@@ -1039,6 +1154,7 @@ createApp({
       valueBets, loadingValue, edgeComp, activeEdgeData, calibMkt, calibMkts, calibBuckets,
       modelCalibData, modelCalibMkt, modelCalibSrc, modelCalibMkts, modelCalibMktData,
       availableModelCalibSrcs, modelCalibBuckets,
+      predHistory, loadingPredHistory, activePredHistory, historyAccuracy, historyOver25Acc,
       predSort, sortedPredictions,
       loadFixtures, loadStandings, openFixture, runPred, loadEdge, syncResults, loadValueBets,
       hasPred, hasValueMarket, isHighGoals, mktLabel, fmt, fmtShort, compClass, compCodeFromLabel,

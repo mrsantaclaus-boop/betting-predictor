@@ -273,6 +273,75 @@ def _load_resolved_preds() -> list[dict]:
     return out
 
 
+def _load_resolved_preds_full() -> list[dict]:
+    """Like _load_resolved_preds but includes match_label, competition, created_at columns."""
+    if _USE_PG:
+        with _get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT fixture_id, match_label, competition, created_at, data "
+                    "FROM predictions WHERE data::jsonb ? 'outcomes' "
+                    "ORDER BY created_at DESC"
+                )
+                rows = cur.fetchall()
+    else:
+        with _get_conn() as conn:
+            try:
+                rows = conn.execute(
+                    "SELECT fixture_id, match_label, competition, created_at, data "
+                    "FROM predictions "
+                    "WHERE json_extract(data, '$.outcomes') IS NOT NULL "
+                    "ORDER BY created_at DESC"
+                ).fetchall()
+            except sqlite3.OperationalError:
+                all_rows = conn.execute(
+                    "SELECT fixture_id, match_label, competition, created_at, data "
+                    "FROM predictions ORDER BY created_at DESC"
+                ).fetchall()
+                rows = [(fid, label, comp, ts, raw) for fid, label, comp, ts, raw in all_rows
+                        if "outcomes" in json.loads(raw)]
+    out = []
+    for fid, label, comp, ts, raw in rows:
+        entry = json.loads(raw)
+        entry.update(fixture_id=fid, match_label=label, competition=comp, created_at=ts)
+        out.append(entry)
+    return out
+
+
+def _load_unresolved_preds() -> list[dict]:
+    """Load all predictions without a result yet (no LIMIT — needed for full sync)."""
+    if _USE_PG:
+        with _get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT fixture_id, match_label, competition, created_at, data "
+                    "FROM predictions "
+                    "WHERE NOT (data::jsonb ? 'result_fetched_at')"
+                )
+                rows = cur.fetchall()
+    else:
+        with _get_conn() as conn:
+            try:
+                rows = conn.execute(
+                    "SELECT fixture_id, match_label, competition, created_at, data "
+                    "FROM predictions "
+                    "WHERE json_extract(data, '$.result_fetched_at') IS NULL"
+                ).fetchall()
+            except sqlite3.OperationalError:
+                all_rows = conn.execute(
+                    "SELECT fixture_id, match_label, competition, created_at, data "
+                    "FROM predictions"
+                ).fetchall()
+                rows = [(fid, label, comp, ts, raw) for fid, label, comp, ts, raw in all_rows
+                        if "result_fetched_at" not in json.loads(raw)]
+    out = []
+    for fid, label, comp, ts, raw in rows:
+        entry = json.loads(raw)
+        entry.update(fixture_id=fid, match_label=label, competition=comp, created_at=ts)
+        out.append(entry)
+    return out
+
+
 # ── Outcome helpers ────────────────────────────────────────────────────────────────────
 
 def _compute_outcomes(hs: int, as_: int, corners: dict | None = None) -> dict:
@@ -637,17 +706,13 @@ def results_sync():
     for all unresolved predictions and record outcomes.
     Idempotent — already-resolved predictions are skipped.
     """
-    preds = _load_preds()
+    preds = _load_unresolved_preds()
     updated = []
     skipped = 0
     errors = []
 
     for p in preds:
         fid = p["fixture_id"]
-
-        if p.get("result_fetched_at"):
-            skipped += 1
-            continue
 
         try:
             fixture = get_fd().get_match_result(fid)
@@ -864,6 +929,71 @@ def edge_stats():
     result["_by_competition"] = by_comp
 
     return jsonify(result)
+
+
+@app.route("/api/prediction-history")
+def prediction_history():
+    """
+    Returns resolved predictions with predicted vs actual outcomes for the history view.
+    Each entry includes match info, the model's top predicted result, the actual result,
+    and whether the prediction was correct.
+    """
+    resolved = _load_resolved_preds_full()
+
+    _NAME_TO_CODE = {
+        "Serie A": "SA", "Serie B": "SB", "Champions League": "CL",
+        "UEFA Europa League": "EL", "UEFA Conference League": "ECL",
+        "UEFA Super Cup": "USC", "FIFA World Cup": "WC",
+        "WCQ Europe": "WCQE", "WCQ Americas": "WCQA", "WCQ CONCACAF": "WCQC",
+        "WCQ Asia": "WCQAS", "WCQ Africa": "WCQAF", "Brasileirao Serie A": "BSA",
+    }
+
+    out = []
+    for p in resolved:
+        outcomes = p.get("outcomes", {})
+        score = p.get("actual_score", {})
+
+        hw = p.get("home_win_pct", 0) or 0
+        dr = p.get("draw_pct", 0) or 0
+        aw = p.get("away_win_pct", 0) or 0
+
+        if hw >= dr and hw >= aw:
+            predicted = "home_win"
+        elif dr >= hw and dr >= aw:
+            predicted = "draw"
+        else:
+            predicted = "away_win"
+
+        if outcomes.get("home_win"):
+            actual = "home_win"
+        elif outcomes.get("draw"):
+            actual = "draw"
+        else:
+            actual = "away_win"
+
+        comp = p.get("competition", "")
+        comp_code = p.get("competition_code") or _NAME_TO_CODE.get(comp, "?")
+
+        out.append({
+            "fixture_id":        p["fixture_id"],
+            "match_label":       p.get("match_label", ""),
+            "competition":       comp,
+            "competition_code":  comp_code,
+            "created_at":        p.get("created_at", ""),
+            "result_fetched_at": p.get("result_fetched_at", ""),
+            "actual_score":      score,
+            "home_win_pct":      hw,
+            "draw_pct":          dr,
+            "away_win_pct":      aw,
+            "over_2_5_pct":      p.get("over_2_5_pct", 0) or 0,
+            "btts_yes_pct":      p.get("btts_yes_pct", 0) or 0,
+            "predicted_result":  predicted,
+            "actual_result":     actual,
+            "result_correct":    predicted == actual,
+            "outcomes":          outcomes,
+        })
+
+    return jsonify(out)
 
 
 @app.route("/api/model-calibration")
