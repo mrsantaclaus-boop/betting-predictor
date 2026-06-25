@@ -248,3 +248,65 @@ class EspnClient:
                 logger.debug("Skip malformed ESPN event: %s", e)
 
         return fixtures
+
+    def get_match_result(self, fixture_id: int, competition_code: str) -> "Fixture | None":
+        """
+        Fetch a single finished match from ESPN by event ID.
+        Returns None if the match isn't finished yet or isn't found.
+        """
+        from .models import Fixture as _Fixture
+        league_info = ESPN_LEAGUES.get(competition_code)
+        if not league_info:
+            return None
+        league_slug, comp_name = league_info
+
+        try:
+            url = f"{BASE_URL}/{league_slug}/summary"
+            r = self.session.get(url, params={"event": fixture_id}, timeout=15)
+            r.raise_for_status()
+            summary = r.json()
+        except Exception as e:
+            logger.debug("ESPN get_match_result failed for event %d: %s", fixture_id, e)
+            return None
+
+        header = summary.get("header", {})
+        competitions = header.get("competitions", [])
+        if not competitions:
+            return None
+
+        comp = competitions[0]
+        status = comp.get("status", {}).get("type", {}).get("name", "")
+        if status not in ("STATUS_FINAL", "STATUS_FULL_TIME"):
+            return None
+
+        competitors = comp.get("competitors", [])
+        home = next((c for c in competitors if c.get("homeAway") == "home"), None)
+        away = next((c for c in competitors if c.get("homeAway") == "away"), None)
+        if not home or not away:
+            return None
+
+        home_score = _safe_int(home.get("score"))
+        away_score = _safe_int(away.get("score"))
+        if home_score is None or away_score is None:
+            return None
+
+        date_str = comp.get("date", "")
+        try:
+            match_dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            match_dt = datetime.now(timezone.utc)
+
+        return _Fixture(
+            fixture_id=fixture_id,
+            competition=comp_name,
+            competition_code=competition_code,
+            home_team=home["team"]["displayName"],
+            home_team_id=int(home["team"].get("id", 0)),
+            away_team=away["team"]["displayName"],
+            away_team_id=int(away["team"].get("id", 0)),
+            match_date=match_dt,
+            status="FINISHED",
+            home_score=home_score,
+            away_score=away_score,
+            is_neutral=competition_code in _NEUTRAL_VENUE_CODES,
+        )

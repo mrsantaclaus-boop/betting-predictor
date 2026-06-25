@@ -46,7 +46,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from football import FootballDataClient, ApiFootballClient, FBrefScraper
+from football import FootballDataClient, ApiFootballClient, FBrefScraper, EspnClient
 from data.odds_api import OddsAPIClient
 from data.news_fetcher import NewsFetcher
 from data.cache import get_cache, TTL
@@ -66,6 +66,7 @@ CORS(app, origins="*")
 _orchestrator: BettingOrchestrator | None = None
 _fd_client: FootballDataClient | None = None
 _af_client: ApiFootballClient | None = None
+_espn_client: EspnClient | None = None
 _fbref_client: FBrefScraper | None = None
 _odds_client: OddsAPIClient | None = None
 _news_fetcher: NewsFetcher | None = None
@@ -96,6 +97,13 @@ def get_af() -> ApiFootballClient:
     if _af_client is None:
         _af_client = ApiFootballClient()
     return _af_client
+
+
+def get_espn() -> EspnClient:
+    global _espn_client
+    if _espn_client is None:
+        _espn_client = EspnClient()
+    return _espn_client
 
 
 def get_fbref() -> FBrefScraper:
@@ -699,12 +707,17 @@ def list_predictions():
         return jsonify({"error": str(e)}), 500
 
 
+_ESPN_SYNC_CODES: frozenset[str] = frozenset({"ECL", "BSA", "WC", "WCQA", "WCQC", "WCQAS", "WCQAF"})
+
+
 @app.route("/api/results/sync", methods=["POST"])
 def results_sync():
     """
     Fetch final scores (and corner counts if API_FOOTBALL_KEY is set)
     for all unresolved predictions and record outcomes.
     Idempotent — already-resolved predictions are skipped.
+    Routes ESPN-sourced competitions (WC, BSA, ECL, WCQ*) to the ESPN
+    client since their fixture IDs are ESPN event IDs, not football-data.org IDs.
     """
     preds = _load_unresolved_preds()
     updated = []
@@ -713,9 +726,13 @@ def results_sync():
 
     for p in preds:
         fid = p["fixture_id"]
+        comp_code = p.get("competition_code") or ""
 
         try:
-            fixture = get_fd().get_match_result(fid)
+            if comp_code in _ESPN_SYNC_CODES:
+                fixture = get_espn().get_match_result(fid, comp_code)
+            else:
+                fixture = get_fd().get_match_result(fid)
         except Exception as e:
             logger.warning("Could not fetch result for %d: %s", fid, e)
             errors.append({"fixture_id": fid, "error": str(e)})
