@@ -352,10 +352,13 @@ def _load_unresolved_preds() -> list[dict]:
 
 # ── Outcome helpers ────────────────────────────────────────────────────────────────────
 
-def _compute_outcomes(hs: int, as_: int, corners: dict | None = None) -> dict:
+def _compute_outcomes(hs: int, as_: int, corners: dict | None = None,
+                       cards: dict | None = None) -> dict:
     """
     Determine which betting markets hit based on final score.
     Pass corners={"home": N, "away": N} to also resolve corner markets.
+    Pass cards={"home_yellow": N, "away_yellow": N, "home_red": N, "away_red": N}
+    to also resolve card markets.
     """
     total = hs + as_
     outcomes = {
@@ -373,6 +376,12 @@ def _compute_outcomes(hs: int, as_: int, corners: dict | None = None) -> dict:
         total_corners = corners["home"] + corners["away"]
         outcomes["over_9_5_corners"]  = total_corners > 9
         outcomes["under_9_5_corners"] = total_corners <= 9
+    if cards and {"home_yellow", "away_yellow", "home_red", "away_red"} <= cards.keys():
+        total_yellow = cards["home_yellow"] + cards["away_yellow"]
+        total_red    = cards["home_red"] + cards["away_red"]
+        outcomes["over_3_5_cards"]  = total_yellow > 3
+        outcomes["under_3_5_cards"] = total_yellow <= 3
+        outcomes["red_card"]        = total_red >= 1
     return outcomes
 
 
@@ -747,21 +756,24 @@ def results_sync():
             skipped += 1
             continue
 
-        # ── Corner stats via FBref scraping (no API key needed) ─────────────
+        # ── Corner + card stats via FBref scraping (no API key needed) ──────
+        # Single combined call: one match-report fetch feeds both parsers,
+        # instead of fetching the same page twice.
         corners: dict = {}
+        cards: dict = {}
         try:
             comp_code = getattr(fixture, "competition_code", "") or ""
             date_str  = fixture.match_date.strftime("%Y-%m-%d")
-            corners = get_fbref().get_match_corners(
+            corners, cards = get_fbref().get_match_corners_and_cards(
                 comp_code,
                 fixture.home_team,
                 fixture.away_team,
                 date_str,
             )
         except Exception as e:
-            logger.debug("FBref corner fetch skipped for %d: %s", fid, e)
+            logger.debug("FBref corner/card fetch skipped for %d: %s", fid, e)
 
-        outcomes = _compute_outcomes(hs, as_, corners or None)
+        outcomes = _compute_outcomes(hs, as_, corners or None, cards or None)
         patch = {
             "actual_score": {"home": hs, "away": as_},
             "outcomes": outcomes,
@@ -769,12 +781,16 @@ def results_sync():
         }
         if corners:
             patch["corner_stats"] = corners  # store raw counts for reference
+        if cards:
+            patch["card_stats"] = cards  # store raw counts for reference
 
         _update_pred_data(fid, patch)
         updated.append({
             "fixture_id": fid,
             "score": f"{hs}-{as_}",
             "corners": f"{corners.get('home','?')}-{corners.get('away','?')}" if corners else None,
+            "cards": (f"{cards.get('home_yellow','?')}-{cards.get('away_yellow','?')}Y"
+                      if cards else None),
         })
 
     return jsonify({

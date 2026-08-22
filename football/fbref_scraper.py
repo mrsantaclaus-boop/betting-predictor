@@ -380,30 +380,41 @@ class FBrefScraper:
         )
         return result
 
-    # ── Per-match corner counts ───────────────────────────────────────────────
+    # ── Per-match corners + cards ──────────────────────────────────────────────
 
-    def get_match_corners(
+    def get_match_corners_and_cards(
         self,
         competition_code: str,
         home_team: str,
         away_team: str,
         date_str: str = "",
-    ) -> dict[str, int]:
+    ) -> tuple[dict[str, int], dict[str, int]]:
         """
-        Scrape the FBref match report for a specific fixture to get actual corner counts.
+        Scrape the FBref match report for a specific fixture to get actual
+        corner and card counts, in a single page fetch.
 
         Strategy:
           1. Scrape the competition schedule page to find the match report URL.
-          2. Scrape the match report page and parse corner kicks from team_stats_extra.
+          2. Scrape the match report page once and parse both corners
+             (from team_stats_extra) and cards (summed from each team's
+             player summary table).
 
-        Returns {"home": int, "away": int} or {} if not found / parsing fails.
-        Uses 1–2 HTTP requests; respects the 4 s polite delay.
+        Returns (corners, cards):
+          corners = {"home": int, "away": int} or {} if not found.
+          cards   = {"home_yellow": int, "away_yellow": int,
+                     "home_red": int, "away_red": int} or {} if not found.
+        Uses 1–2 HTTP requests total; respects the 4 s polite delay.
         """
         match_url = self._find_match_url(competition_code, home_team, away_team, date_str)
         if not match_url:
-            logger.debug("FBref: no match URL found for %s vs %s", home_team, away_team)
-            return {}
-        return self._scrape_corners_from_report(match_url, home_team, away_team)
+            logger.warning("FBref: no match URL found for %s vs %s (%s, date=%s)",
+                           home_team, away_team, competition_code, date_str)
+            return {}, {}
+        soup = _get(match_url)
+        if not soup:
+            return {}, {}
+        return (self._parse_corners_from_soup(soup, match_url),
+                self._parse_cards_from_soup(soup, match_url))
 
     def _find_match_url(
         self,
@@ -415,6 +426,7 @@ class FBrefScraper:
         """Return the FBref match report URL for the given fixture, or None."""
         comp = FBREF_COMPETITIONS.get(competition_code)
         if not comp:
+            logger.warning("FBref: no competition mapping for code '%s'", competition_code)
             return None
 
         url = (
@@ -423,10 +435,11 @@ class FBrefScraper:
         )
         soup = _get(url)
         if not soup:
-            return None
+            return None  # _get() already logs the fetch failure
 
         table = soup.find("table", id=re.compile(r"sched_"))
         if not table:
+            logger.warning("FBref: no schedule table found at %s", url)
             return None
 
         home_kw = self._name_keywords(home_team)
@@ -459,17 +472,11 @@ class FBrefScraper:
 
         return None
 
-    def _scrape_corners_from_report(
-        self, match_url: str, home_team: str = "", away_team: str = ""
-    ) -> dict[str, int]:
+    def _parse_corners_from_soup(self, soup, match_url: str = "") -> dict[str, int]:
         """
-        Parse corner kicks from a FBref match report page.
+        Parse corner kicks from an already-fetched FBref match report page.
         Tries team_stats_extra (preferred) then falls back to team_stats table.
         """
-        soup = _get(match_url)
-        if not soup:
-            return {}
-
         # ── Approach 1: div#team_stats_extra ─────────────────────────────────
         # Structure: each <div> child has <p> label, <p> home_val, <p> away_val
         extra = soup.find("div", id="team_stats_extra")
@@ -505,8 +512,59 @@ class FBrefScraper:
                 if len(nums) >= 2:
                     return {"home": nums[0], "away": nums[1]}
 
-        logger.debug("FBref: corners not found in match report %s", match_url)
+        logger.warning("FBref: corners not found in match report %s", match_url)
         return {}
+
+    def _parse_cards_from_soup(self, soup, match_url: str = "") -> dict[str, int]:
+        """
+        Parse total yellow/red cards per team from an already-fetched
+        FBref match report page.
+
+        Sums the 'cards_yellow' / 'cards_red' data-stat columns across each
+        team's player summary table (id like "stats_<squad_id>_summary" —
+        exactly two per match report, home team first, away team second,
+        same data-stat convention already used for season-aggregate squad
+        stats in _parse_misc_table above).
+        """
+        summary_tables = soup.find_all("table", id=re.compile(r"^stats_.+_summary$"))
+        if len(summary_tables) < 2:
+            logger.warning(
+                "FBref: expected 2 player summary tables for cards, found %d in %s",
+                len(summary_tables), match_url,
+            )
+            return {}
+
+        totals = []
+        for table in summary_tables[:2]:
+            body = table.find("tbody")
+            if not body:
+                totals.append(None)
+                continue
+            yellow = red = 0
+            for row in body.find_all("tr"):
+                for stat, acc in (("cards_yellow", "yellow"), ("cards_red", "red")):
+                    cell = row.find("td", {"data-stat": stat})
+                    if cell is None:
+                        continue
+                    try:
+                        n = int(cell.get_text(strip=True) or 0)
+                    except ValueError:
+                        continue
+                    if acc == "yellow":
+                        yellow += n
+                    else:
+                        red += n
+            totals.append((yellow, red))
+
+        if len(totals) != 2 or None in totals:
+            logger.warning("FBref: could not parse both summary tables for cards in %s", match_url)
+            return {}
+
+        (h_yellow, h_red), (a_yellow, a_red) = totals
+        return {
+            "home_yellow": h_yellow, "away_yellow": a_yellow,
+            "home_red": h_red, "away_red": a_red,
+        }
 
     # ── Referee stats ─────────────────────────────────────────────────────────
 
