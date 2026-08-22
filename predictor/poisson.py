@@ -18,8 +18,14 @@ from dataclasses import dataclass, field
 from football.models import TeamStats, HeadToHead
 
 # Empirical average xG per team per game, per competition
+# SA nudged 1.35 → 1.40 (Aug 2026, pre-2025/26 season): /api/edge on the
+# resolved 2024/25 sample (n=53) showed over_3.5 goals and BTTS-yes both
+# overestimated by ~9-14pp with over_2.5 close to calibrated — a total-goals
+# tail issue, not a mean issue, but raising the denominator is the only lever
+# in this model that pulls down the tail without disturbing the H/D/A split.
+# Revisit once the new season adds ~30+ resolved SA predictions.
 LEAGUE_AVG_XG: dict[str, float] = {
-    "SA":    1.35,
+    "SA":    1.40,
     "SB":    1.25,  # Serie B: slightly lower scoring than Serie A
     "CL":    1.40,
     "EL":    1.38,  # Europa League: slightly below CL quality
@@ -37,8 +43,14 @@ _DEFAULT_AVG_XG = 1.30
 
 # Per-competition home advantage (home attack multiplier).
 # Derived from historical home/away goals ratios per competition.
+# SA lowered 1.12 → 1.08 (Aug 2026, pre-2025/26 season): /api/edge on the
+# resolved 2024/25 sample (n=53) showed home_win overpredicted (-6.3pp edge)
+# and away_win badly underpredicted (+13.2pp edge) relative to observed
+# results. n=53 isn't a random draw of the full season, so this is a partial
+# correction, not a full one — re-check against the 2025/26 sample once it
+# reaches 30+ resolved predictions and adjust further if the bias persists.
 HOME_ADVANTAGE: dict[str, float] = {
-    "SA":    1.12,   # Serie A: strong crowd factor
+    "SA":    1.08,   # Serie A: strong crowd factor
     "SB":    1.11,   # Serie B: similar to Serie A but slightly lower stakes
     "CL":    1.06,   # CL: competitive away sides, historically flatter
     "EL":    1.07,   # Europa League: similar to CL
