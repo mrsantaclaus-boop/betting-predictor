@@ -380,12 +380,29 @@ def compute_corner_poisson(
     home_corners_pg: float,
     away_corners_pg: float,
     competition_code: str = "",
+    home_corners_against_pg: float = 0.0,
+    away_corners_against_pg: float = 0.0,
 ) -> CornerResult | None:
     """
     Estimate over/under 9.5 corners using a Poisson model on total corners.
 
-    λ = home_corners_pg + away_corners_pg, adjusted toward the league average
-    when per-team data is sparse (either value is zero → fall back to average).
+    Base case (no "against" data): λ = home_corners_pg + away_corners_pg,
+    adjusted toward the league average when per-team data is sparse (either
+    value is zero → fall back to average).
+
+    Matchup adjustment (when both *_corners_against_pg are available): mirrors
+    the attack/defense cross-adjustment used for goals. A team's own
+    corners_pg only says how many corners it tends to win — it says nothing
+    about how many its next opponent tends to concede. A side that regularly
+    wins corners against a side that regularly cedes few (e.g. a compact,
+    low-block team) should be pulled down from the naive sum, and vice versa:
+
+        home_exp = (home_corners_pg / baseline) * (away_corners_against_pg / baseline) * baseline
+        away_exp = (away_corners_pg / baseline) * (home_corners_against_pg / baseline) * baseline
+
+    where baseline = league_avg_total_corners / 2 (the per-team norm implied
+    by LEAGUE_AVG_CORNERS). Each side's expectation is clamped to a plausible
+    single-team range so a small-sample outlier can't blow up the total.
 
     Returns None if no usable data is available.
     """
@@ -398,7 +415,15 @@ def compute_corner_poisson(
     h = home_corners_pg if home_corners_pg > 0 else avg / 2
     a = away_corners_pg if away_corners_pg > 0 else avg / 2
 
-    lambda_total = max(0.5, h + a)
+    if home_corners_against_pg > 0 and away_corners_against_pg > 0:
+        baseline = avg / 2
+        home_exp = (h / baseline) * (away_corners_against_pg / baseline) * baseline
+        away_exp = (a / baseline) * (home_corners_against_pg / baseline) * baseline
+        home_exp = max(1.0, min(home_exp, baseline * 2.5))
+        away_exp = max(1.0, min(away_exp, baseline * 2.5))
+        lambda_total = max(0.5, home_exp + away_exp)
+    else:
+        lambda_total = max(0.5, h + a)
 
     # P(total corners ≤ 9) = sum_{k=0}^{9} Poisson(k | lambda_total)
     under_9_5 = sum(_poisson_pmf(k, lambda_total) for k in range(10))

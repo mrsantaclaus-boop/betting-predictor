@@ -180,6 +180,22 @@ class FBrefScraper:
             if s.team_name in corners_map:
                 s.corners_pg = corners_map[s.team_name]
 
+        # Corners conceded — used for the attack/defense matchup adjustment
+        # (a team's own corners_pg says nothing about how many corners its
+        # opponents tend to win against it; this does).
+        corners_against = self._parse_corners_against(soup, competition_code)
+        corners_against_map = {name: val for name, val in corners_against}
+        for s in standard:
+            entry = corners_against_map.get(s.team_name)
+            if entry is None:
+                kw = self._name_keywords(s.team_name)
+                for name, val in corners_against_map.items():
+                    if kw & self._name_keywords(name):
+                        entry = val
+                        break
+            if entry is not None:
+                s.corners_against_pg = entry
+
         return standard
 
     def _parse_against_table(self, soup: BeautifulSoup,
@@ -346,6 +362,46 @@ class FBrefScraper:
                 continue
 
         return corners
+
+    def _parse_corners_against(self, soup: BeautifulSoup,
+                                competition_code: str) -> list[tuple]:
+        """
+        Extract corner kicks CONCEDED per game from the 'passing against' table
+        (mirrors _parse_against_table's approach for goals conceded/xGA).
+        Returns [] if the table/column isn't present — callers must treat this
+        as optional data and fall back gracefully (same as every other
+        FBref field in this scraper).
+        """
+        result = []
+        table = soup.find("table", id=re.compile(r"stats_squads_passing_against"))
+        if not table:
+            return result
+        tbody = table.find("tbody")
+        if not tbody:
+            return result
+
+        for row in tbody.find_all("tr"):
+            if row.get("class") and "thead" in row.get("class", []):
+                continue
+            team_cell = row.find("td", {"data-stat": "team"})
+            if not team_cell:
+                continue
+            team_name = team_cell.get_text(strip=True)
+            if not team_name:
+                continue
+
+            gp_cell = row.find("td", {"data-stat": "games"})
+            ck_cell = row.find("td", {"data-stat": "corner_kicks"})
+            if not gp_cell or not ck_cell:
+                continue
+            try:
+                gp = int(gp_cell.get_text(strip=True))
+                ck = float(ck_cell.get_text(strip=True).replace(",", ""))
+                result.append((team_name, round(ck / max(gp, 1), 2)))
+            except (ValueError, ZeroDivisionError):
+                continue
+
+        return result
 
     def _get_corners_homeaway(
         self, comp_id: str, slug: str, competition_code: str

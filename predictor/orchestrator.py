@@ -226,7 +226,11 @@ class BettingOrchestrator:
             away_cpg = (report.away_stats.corners_away_pg
                         if report.away_stats.corners_away_pg > 0
                         else report.away_stats.corners_pg)
-            corner_poisson = compute_corner_poisson(home_cpg, away_cpg, fixture.competition_code)
+            corner_poisson = compute_corner_poisson(
+                home_cpg, away_cpg, fixture.competition_code,
+                home_corners_against_pg=report.home_stats.corners_against_pg,
+                away_corners_against_pg=report.away_stats.corners_against_pg,
+            )
             if corner_poisson:
                 prediction.over_9_5_corners_pct  = corner_poisson.over_9_5_corners_pct
                 prediction.under_9_5_corners_pct = corner_poisson.under_9_5_corners_pct

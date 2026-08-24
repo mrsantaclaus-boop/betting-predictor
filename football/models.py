@@ -43,6 +43,7 @@ class TeamStats(BaseModel):
     corners_pg: float = 0.0
     corners_home_pg: float = 0.0   # corners/game when playing at home
     corners_away_pg: float = 0.0   # corners/game when playing away
+    corners_against_pg: float = 0.0  # corners conceded/game (opponent's style proxy)
     yellow_cards_pg: float = 0.0
     red_cards_pg: float = 0.0
     fouls_committed_pg: float = 0.0

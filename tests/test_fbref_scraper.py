@@ -38,6 +38,36 @@ def test_parse_corners_returns_empty_when_missing():
     assert scraper._parse_corners_from_soup(_soup(html)) == {}
 
 
+# ── Corners against (matchup adjustment data) ─────────────────────────────────
+
+def test_parse_corners_against_reads_conceded_per_game():
+    html = """
+    <table id="stats_squads_passing_against">
+      <tbody>
+        <tr>
+          <td data-stat="team">Torino</td>
+          <td data-stat="games">20</td>
+          <td data-stat="corner_kicks">80</td>
+        </tr>
+        <tr>
+          <td data-stat="team">Milan</td>
+          <td data-stat="games">20</td>
+          <td data-stat="corner_kicks">120</td>
+        </tr>
+      </tbody>
+    </table>
+    """
+    scraper = FBrefScraper()
+    result = dict(scraper._parse_corners_against(_soup(html), "SA"))
+    assert result == {"Torino": 4.0, "Milan": 6.0}
+
+
+def test_parse_corners_against_returns_empty_when_table_missing():
+    html = "<table id='stats_squads_standard_for'><tbody></tbody></table>"
+    scraper = FBrefScraper()
+    assert scraper._parse_corners_against(_soup(html), "SA") == []
+
+
 # ── Cards ────────────────────────────────────────────────────────────────────
 
 _CARDS_HTML = """

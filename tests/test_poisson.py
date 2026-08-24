@@ -107,6 +107,46 @@ def test_corner_fallback_when_one_side_missing():
     assert r.lambda_corners > 0
 
 
+def test_corner_matchup_adjustment_suppresses_low_block_opponents():
+    # Both sides average the SA per-team baseline (5.25) but both concede far
+    # fewer corners than that — a "compact, low-block" matchup (the Torino-
+    # Milan scenario). Expect the adjusted total well below the naive sum.
+    naive = compute_corner_poisson(5.25, 5.25, "SA")
+    adjusted = compute_corner_poisson(
+        5.25, 5.25, "SA",
+        home_corners_against_pg=3.0, away_corners_against_pg=3.0,
+    )
+    assert adjusted.lambda_corners < naive.lambda_corners
+    assert adjusted.lambda_corners == 6.0  # (5.25/5.25)*(3.0/5.25)*5.25 per side
+
+
+def test_corner_matchup_adjustment_raises_open_matchups():
+    naive = compute_corner_poisson(5.25, 5.25, "SA")
+    adjusted = compute_corner_poisson(
+        5.25, 5.25, "SA",
+        home_corners_against_pg=8.0, away_corners_against_pg=8.0,
+    )
+    assert adjusted.lambda_corners > naive.lambda_corners
+
+
+def test_corner_matchup_adjustment_ignored_when_only_one_side_has_against_data():
+    naive = compute_corner_poisson(5.25, 5.25, "SA")
+    partial = compute_corner_poisson(
+        5.25, 5.25, "SA",
+        home_corners_against_pg=3.0, away_corners_against_pg=0.0,
+    )
+    assert partial.lambda_corners == naive.lambda_corners
+
+
+def test_corner_matchup_adjustment_clamps_extreme_values():
+    r = compute_corner_poisson(
+        10.0, 10.0, "SA",
+        home_corners_against_pg=10.0, away_corners_against_pg=10.0,
+    )
+    # Each side capped at baseline * 2.5 = 13.125 → total capped at 26.25
+    assert r.lambda_corners <= 26.25
+
+
 # ── compute_cards_poisson ──────────────────────────────────────────────────────
 
 def test_cards_returns_none_when_no_data():
