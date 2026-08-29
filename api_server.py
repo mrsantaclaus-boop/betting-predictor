@@ -15,6 +15,8 @@ Endpoints:
   GET  /api/predictions
   POST /api/results/sync
   GET  /api/edge
+  GET  /api/value-bets
+  GET  /api/daily-picks
   POST /api/cache/clear
   DELETE /api/predictions/unplayed
 """
@@ -406,6 +408,32 @@ _COUNTERPART: dict[str, str] = {
 }
 
 MIN_EDGE_PCT = 3.0
+
+# Markets where we can compare model probability against real bookmaker odds.
+_VALUE_MARKETS: dict[str, str] = {
+    "home_win":  "home_win_pct",
+    "draw":      "draw_pct",
+    "away_win":  "away_win_pct",
+    "over_2_5":  "over_2_5_pct",
+    "under_2_5": "under_2_5_pct",
+    "btts_yes":  "btts_yes_pct",
+    "btts_no":   "btts_no_pct",
+}
+
+_CONFIDENCE_RANK: dict[str, int] = {"low": 0, "medium": 1, "high": 2}
+
+
+def _is_today_utc(iso_date: str | None) -> bool:
+    """True if iso_date falls on today's date in UTC (football-data.org timestamps are UTC)."""
+    if not iso_date:
+        return False
+    try:
+        dt = datetime.fromisoformat(iso_date.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).date() == datetime.now(timezone.utc).date()
+    except (ValueError, TypeError):
+        return False
 
 
 def _odds_age_label(fetched_at: str | None) -> str:
@@ -809,17 +837,6 @@ def value_bets():
     """
     preds = _load_preds()
 
-    # Only markets where we can compare against real odds
-    VALUE_MARKETS = {
-        "home_win":  "home_win_pct",
-        "draw":      "draw_pct",
-        "away_win":  "away_win_pct",
-        "over_2_5":  "over_2_5_pct",
-        "under_2_5": "under_2_5_pct",
-        "btts_yes":  "btts_yes_pct",
-        "btts_no":   "btts_no_pct",
-    }
-
     results = []
     for p in preds:
         if p.get("result_fetched_at"):
@@ -829,7 +846,7 @@ def value_bets():
             continue
 
         bets = []
-        for mkt_key, pred_field in VALUE_MARKETS.items():
+        for mkt_key, pred_field in _VALUE_MARKETS.items():
             model_pct = p.get(pred_field, 0.0)
             if not model_pct:
                 continue
@@ -866,6 +883,79 @@ def value_bets():
 
     results.sort(key=lambda x: max(b["edge"] for b in x["bets"]), reverse=True)
     return jsonify(results)
+
+
+@app.route("/api/daily-picks")
+def daily_picks():
+    """
+    Autonomous daily shortlist: the single best value bet per match, restricted to
+    TODAY's fixtures only, filtered by edge (>= MIN_EDGE_PCT) and model confidence
+    (predictions marked "low" confidence are excluded even if the edge looks good).
+    Ranked by edge desc, then confidence desc. Capped by `limit` (default 5).
+    """
+    try:
+        limit = max(1, int(request.args.get("limit", 5)))
+    except (TypeError, ValueError):
+        limit = 5
+
+    todays_fixture_ids = {
+        f["fixture_id"] for f in (_fixture_list() or [])
+        if _is_today_utc(f.get("match_date"))
+    }
+
+    preds = _load_preds()
+    picks = []
+    for p in preds:
+        if p.get("result_fetched_at"):
+            continue
+        if p["fixture_id"] not in todays_fixture_ids:
+            continue
+
+        confidence = str(p.get("confidence") or "medium").lower()
+        if _CONFIDENCE_RANK.get(confidence, 1) < _CONFIDENCE_RANK["medium"]:
+            continue  # skip low-confidence predictions regardless of edge
+
+        consensus = p.get("live_odds", {}).get("consensus", {})
+        if not consensus:
+            continue
+
+        best_bet = None
+        for mkt_key, pred_field in _VALUE_MARKETS.items():
+            model_pct = p.get(pred_field, 0.0)
+            if not model_pct:
+                continue
+            odds_key = _ODDS_KEY_MAP.get(mkt_key)
+            if not odds_key:
+                continue
+            price = consensus.get(odds_key, 0)
+            if not price or price <= 1.0:
+                continue
+            implied = _implied_pct(mkt_key, consensus, model_pct)
+            edge = round(model_pct - implied, 1)
+            if edge >= MIN_EDGE_PCT and (best_bet is None or edge > best_bet["edge"]):
+                best_bet = {
+                    "market_key":  mkt_key,
+                    "market":      _MARKET_LABELS.get(mkt_key, mkt_key),
+                    "model_pct":   round(model_pct, 1),
+                    "implied_pct": implied,
+                    "edge":        edge,
+                    "odds":        price,
+                }
+
+        if best_bet:
+            fetched_at = p.get("odds_fetched_at")
+            picks.append({
+                "fixture_id":      p["fixture_id"],
+                "match_label":     p.get("match_label", ""),
+                "competition":     p.get("competition", ""),
+                "confidence":      confidence,
+                "odds_age":        _odds_age_label(fetched_at),
+                "odds_stale":      _is_odds_stale(fetched_at),
+                "bet":             best_bet,
+            })
+
+    picks.sort(key=lambda c: (c["bet"]["edge"], _CONFIDENCE_RANK.get(c["confidence"], 1)), reverse=True)
+    return jsonify(picks[:limit])
 
 
 @app.route("/api/edge")
