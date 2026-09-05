@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import time
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import requests
@@ -46,6 +46,13 @@ COMPETITIONS = {
 # Polite rate limit — free tier allows 10 req/min
 _MIN_INTERVAL = 6.5  # seconds between requests
 _last_call: float = 0.0
+
+# Statuses that mean a match is no longer "upcoming" (already started, finished,
+# or won't be played as scheduled)
+_TERMINAL_STATUSES = {
+    "FINISHED", "POSTPONED", "CANCELLED", "AWARDED", "SUSPENDED",
+    "IN_PLAY", "PAUSED", "EXTRA_TIME", "PENALTY_SHOOTOUT",
+}
 
 
 class FootballDataClient:
@@ -92,10 +99,22 @@ class FootballDataClient:
 
     def get_upcoming_fixtures(self, competition_code: str,
                                days_ahead: int = 7) -> list[Fixture]:
-        """Return fixtures scheduled in the next N days."""
+        """Return fixtures scheduled in the next N days.
+
+        Uses a date window rather than filtering by `status=SCHEDULED`:
+        matches get a confirmed kickoff time and flip to `TIMED` well before
+        kickoff, so a SCHEDULED-only filter silently drops most real
+        near-term fixtures once that happens (matches only stay SCHEDULED
+        while their time is still unconfirmed, which is often true only for
+        rounds far in the future).
+        """
+        date_from = datetime.now(timezone.utc).date()
+        date_to = date_from + timedelta(days=days_ahead)
         data = self._get(f"competitions/{competition_code}/matches",
-                         params={"status": "SCHEDULED"})
-        return self._parse_fixtures(data, competition_code, limit=20)
+                         params={"dateFrom": date_from.isoformat(),
+                                 "dateTo": date_to.isoformat()})
+        fixtures = self._parse_fixtures(data, competition_code, limit=100)
+        return [f for f in fixtures if f.status not in _TERMINAL_STATUSES]
 
     def get_recent_matches(self, competition_code: str,
                             limit: int = 10) -> list[Fixture]:
