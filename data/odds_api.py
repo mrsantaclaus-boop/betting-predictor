@@ -115,15 +115,22 @@ class OddsAPIClient:
 
         return self._parse_event(event)
 
-    def get_all_odds(self, competition_code: str) -> list[dict]:
-        """Return odds for all upcoming fixtures in a competition."""
+    def get_all_odds(self, competition_code: str) -> list[dict] | dict:
+        """Return odds for all upcoming fixtures in a competition.
+
+        Returns the error dict as-is on failure (same shape as
+        get_fixture_odds) instead of silently returning an empty list —
+        an empty list must mean "no events currently listed", not "the
+        request failed", otherwise a real API error (bad key, quota,
+        sport not yet activated) looks identical to a genuine market gap.
+        """
         sport = SPORT_KEYS.get(competition_code)
         if not sport:
-            return []
+            return {"error": f"Unknown competition: {competition_code}"}
 
         odds_data = self._get_odds(sport, markets=["h2h", "totals"])
         if isinstance(odds_data, dict) and "error" in odds_data:
-            return []
+            return odds_data
 
         return [self._parse_event(e) for e in odds_data]
 
