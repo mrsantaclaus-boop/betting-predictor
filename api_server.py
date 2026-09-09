@@ -594,6 +594,18 @@ def standings(competition_code: str):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/odds/sports")
+def odds_sports():
+    """Diagnostic: list the sport keys The Odds API currently recognizes.
+
+    Used to verify/correct the SPORT_KEYS mapping in data/odds_api.py
+    against the provider's actual naming instead of guessing at it.
+    """
+    if not os.getenv("ODDS_API_KEY"):
+        return jsonify({"error": "ODDS_API_KEY not configured"}), 503
+    return jsonify(get_odds().list_sports())
+
+
 @app.route("/api/odds/<competition_code>")
 def odds_by_competition(competition_code: str):
     """All live odds for a competition."""

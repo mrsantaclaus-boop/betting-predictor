@@ -115,6 +115,22 @@ class OddsAPIClient:
 
         return self._parse_event(event)
 
+    def list_sports(self) -> list[dict] | dict:
+        """Return the full list of sport keys The Odds API currently recognizes.
+
+        Diagnostic helper — used to verify/correct entries in SPORT_KEYS
+        rather than guessing at the provider's key naming.
+        """
+        url = f"{BASE_URL}/sports"
+        try:
+            resp = self.session.get(
+                url, params={"apiKey": self.api_key, "all": "true"}, timeout=15
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException as e:
+            return {"error": str(e)}
+
     def get_all_odds(self, competition_code: str) -> list[dict] | dict:
         """Return odds for all upcoming fixtures in a competition.
 
