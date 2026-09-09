@@ -40,18 +40,23 @@ BASE_URL = "https://api.the-odds-api.com/v4"
 SPORT_KEYS = {
     "SA":    "soccer_italy_serie_a",
     "SB":    "soccer_italy_serie_b",
-    "CL":    "soccer_uefa_champions_league",
+    "CL":    "soccer_uefa_champs_league",
     "EL":    "soccer_uefa_europa_league",
     "ECL":   "soccer_uefa_europa_conference_league",
     "USC":   "soccer_uefa_super_cup",
     "WC":    "soccer_fifa_world_cup",
-    "WCQE":  "soccer_eu_world_cup_qualification",
-    "WCQA":  "soccer_conmebol_world_cup_qualifying",
+    "WCQE":  "soccer_fifa_world_cup_qualifiers_europe",
+    "WCQA":  "soccer_fifa_world_cup_qualifiers_south_america",
     "WCQC":  "soccer_concacaf_world_cup_qualifying",
     "WCQAS": "soccer_afc_world_cup_qualifying",
     "WCQAF": "soccer_caf_world_cup_qualifying",
     "BSA":   "soccer_brazil_campeonato",
 }
+# NOTE: USC, WCQC, WCQAS, WCQAF have no confirmed match in The Odds API's
+# sports catalog (checked via GET /api/odds/sports) — likely not covered by
+# the provider at all, or only listed during an active qualifying window.
+# Left as best-guess keys; they'll surface a clear "Unknown sport" error
+# rather than silently returning no odds if still wrong.
 
 # Bookmakers to include (shown in the UI)
 PREFERRED_BOOKS = [
