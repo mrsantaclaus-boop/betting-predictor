@@ -170,8 +170,9 @@ class OddsAPIClient:
                 return {"error": "Invalid ODDS_API_KEY"}
             if code == 422:
                 return {"error": f"Sport {sport} not available on free tier"}
-            logger.error("Odds API error %d for %s", code, sport)
-            return {"error": f"HTTP {code}"}
+            body = (e.response.text or "")[:300]
+            logger.error("Odds API error %d for %s: %s", code, sport, body)
+            return {"error": f"HTTP {code}", "detail": body}
         except requests.RequestException as e:
             logger.error("Odds API request failed: %s", e)
             return {"error": str(e)}
