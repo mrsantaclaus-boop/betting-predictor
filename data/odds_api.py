@@ -16,9 +16,17 @@ Fetches live bookmaker odds for:
 
 Markets covered:
   - h2h          → 1X2 match result
-  - totals        → Over/Under goals
-  - btts          → Both Teams To Score (where available)
-  - team_totals   → corners / cards (where available)
+  - totals        → Over/Under 2.5 goals
+
+NOTE: btts and corner/card markets are NOT actually fetched, despite
+_parse_event() having (unused) code to parse a "btts" market. The
+provider's batch /v4/sports/{sport}/odds endpoint rejects the whole
+request with INVALID_MARKET if "btts" is included in `markets`
+alongside h2h/totals (confirmed live 2026-09-14) — it would need its
+own separate request (extra API quota) to work, which hasn't been
+implemented. Corners/cards were apparently never real: The Odds API
+doesn't offer a corners/cards market for soccer at all; "team_totals"
+(each team's own goal total) is not the same thing.
 """
 
 from __future__ import annotations
@@ -109,7 +117,7 @@ class OddsAPIClient:
         if not sport:
             return {"error": f"Unknown competition: {competition_code}"}
 
-        odds_data = self._get_odds(sport, markets=["h2h", "totals", "btts"])
+        odds_data = self._get_odds(sport, markets=["h2h", "totals"])
         if "error" in odds_data:
             return odds_data
 
@@ -149,7 +157,7 @@ class OddsAPIClient:
         if not sport:
             return {"error": f"Unknown competition: {competition_code}"}
 
-        odds_data = self._get_odds(sport, markets=["h2h", "totals", "btts"])
+        odds_data = self._get_odds(sport, markets=["h2h", "totals"])
         if isinstance(odds_data, dict) and "error" in odds_data:
             return odds_data
 
