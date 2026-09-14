@@ -17,7 +17,7 @@ SHRINKAGE_WEIGHT = 8  # equivalent to 8 games worth of prior evidence
 
 # League-average per-game stats used as the Bayesian prior
 LEAGUE_AVERAGES: dict[str, dict[str, float]] = {
-    "SA":    {"goals_scored_pg": 1.35, "goals_conceded_pg": 1.35, "xg_pg": 1.35,
+    "SA":    {"goals_scored_pg": 1.40, "goals_conceded_pg": 1.40, "xg_pg": 1.35,
               "xga_pg": 1.35, "corners_pg": 5.1, "yellow_cards_pg": 2.2, "red_cards_pg": 0.08},
     "SB":    {"goals_scored_pg": 1.25, "goals_conceded_pg": 1.25, "xg_pg": 1.25,
               "xga_pg": 1.25, "corners_pg": 5.1, "yellow_cards_pg": 2.4, "red_cards_pg": 0.09},
