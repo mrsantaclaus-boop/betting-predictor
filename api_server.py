@@ -606,6 +606,21 @@ def odds_sports():
     return jsonify(get_odds().list_sports())
 
 
+@app.route("/api/odds/probe/<competition_code>/<event_id>")
+def odds_probe(competition_code: str, event_id: str):
+    """Diagnostic: raw per-event odds request for arbitrary market keys.
+
+    ?markets=corners,cards (comma-separated) — used to check live whether
+    a market exists on the provider at all, rather than guessing.
+    """
+    if not os.getenv("ODDS_API_KEY"):
+        return jsonify({"error": "ODDS_API_KEY not configured"}), 503
+    markets = [m.strip() for m in request.args.get("markets", "").split(",") if m.strip()]
+    if not markets:
+        return jsonify({"error": "Pass ?markets=key1,key2"}), 400
+    return jsonify(get_odds().probe_event_markets(competition_code, event_id, markets))
+
+
 @app.route("/api/odds/<competition_code>")
 def odds_by_competition(competition_code: str):
     """All live odds for a competition."""

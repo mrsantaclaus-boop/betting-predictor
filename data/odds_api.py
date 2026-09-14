@@ -17,16 +17,18 @@ Fetches live bookmaker odds for:
 Markets covered:
   - h2h          → 1X2 match result
   - totals        → Over/Under 2.5 goals
+  - btts          → Both Teams To Score, via a separate per-event request
+                     (get_fixture_odds only — the batch /sports/{sport}/odds
+                     endpoint rejects "btts" with INVALID_MARKET if bundled
+                     with h2h/totals; confirmed live 2026-09-14). Best-effort:
+                     null if the follow-up call fails, h2h/totals unaffected.
 
-NOTE: btts and corner/card markets are NOT actually fetched, despite
-_parse_event() having (unused) code to parse a "btts" market. The
-provider's batch /v4/sports/{sport}/odds endpoint rejects the whole
-request with INVALID_MARKET if "btts" is included in `markets`
-alongside h2h/totals (confirmed live 2026-09-14) — it would need its
-own separate request (extra API quota) to work, which hasn't been
-implemented. Corners/cards were apparently never real: The Odds API
-doesn't offer a corners/cards market for soccer at all; "team_totals"
-(each team's own goal total) is not the same thing.
+Corners/cards: no known market key on The Odds API for soccer (its
+public docs don't list one); "team_totals" (each team's own goal total,
+mentioned in an earlier version of this docstring) is a different
+market and was never actually corners/cards data. Use
+probe_event_markets() against a real event_id to test a market key
+live before assuming either way.
 """
 
 from __future__ import annotations
@@ -126,7 +128,42 @@ class OddsAPIClient:
         if not event:
             return {"error": f"Match {home_team} vs {away_team} not found in live odds"}
 
-        return self._parse_event(event)
+        result = self._parse_event(event)
+
+        # BTTS isn't offered by the batch /sports/{sport}/odds endpoint used
+        # above (confirmed: INVALID_MARKET "not supported by this endpoint"),
+        # but The Odds API does offer it per-event. Best-effort follow-up
+        # call — on any failure we just keep btts_yes/btts_no null rather
+        # than losing the h2h/totals odds we already have.
+        event_id = event.get("id", "")
+        if event_id:
+            btts_event = self._get_event_odds(sport, event_id, markets=["btts"])
+            if isinstance(btts_event, dict) and "error" not in btts_event:
+                btts_parsed = self._parse_event(btts_event)
+                btts_consensus = btts_parsed.get("consensus", {})
+                if btts_consensus.get("btts_yes") or btts_consensus.get("btts_no"):
+                    result["consensus"]["btts_yes"] = btts_consensus.get("btts_yes")
+                    result["consensus"]["btts_no"] = btts_consensus.get("btts_no")
+                    for bname, book_odds in btts_parsed.get("bookmakers", {}).items():
+                        result["bookmakers"].setdefault(bname, {}).update(
+                            {k: v for k, v in book_odds.items() if k in ("btts_yes", "btts_no")}
+                        )
+
+        return result
+
+    def probe_event_markets(self, competition_code: str, event_id: str,
+                             markets: list[str]) -> dict:
+        """Diagnostic: raw per-event odds request for arbitrary market keys.
+
+        Used to check, against the provider's real behavior rather than
+        guesswork, whether a market (e.g. a corners/cards line) exists at
+        all for this event — an INVALID_MARKET error names the rejected
+        key, a real market returns actual bookmaker prices.
+        """
+        sport = SPORT_KEYS.get(competition_code)
+        if not sport:
+            return {"error": f"Unknown competition: {competition_code}"}
+        return self._get_event_odds(sport, event_id, markets)
 
     def list_sports(self) -> list[dict] | dict:
         """Return the full list of sport keys The Odds API currently recognizes.
@@ -170,18 +207,33 @@ class OddsAPIClient:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _get_odds(self, sport: str, markets: list[str]) -> list | dict:
-        global _last_call
-        elapsed = time.time() - _last_call
-        if elapsed < _MIN_INTERVAL:
-            time.sleep(_MIN_INTERVAL - elapsed)
-
+        url = f"{BASE_URL}/sports/{sport}/odds"
         params = {
             "apiKey": self.api_key,
             "regions": "eu",
             "markets": ",".join(markets),
             "oddsFormat": "decimal",
         }
-        url = f"{BASE_URL}/sports/{sport}/odds"
+        return self._request(url, params)
+
+    def _get_event_odds(self, sport: str, event_id: str, markets: list[str]) -> dict:
+        """Per-event odds — some markets (e.g. btts) are rejected by the
+        batch /sports/{sport}/odds endpoint but are available here."""
+        url = f"{BASE_URL}/sports/{sport}/events/{event_id}/odds"
+        params = {
+            "apiKey": self.api_key,
+            "regions": "eu",
+            "markets": ",".join(markets),
+            "oddsFormat": "decimal",
+        }
+        return self._request(url, params)
+
+    def _request(self, url: str, params: dict) -> list | dict:
+        global _last_call
+        elapsed = time.time() - _last_call
+        if elapsed < _MIN_INTERVAL:
+            time.sleep(_MIN_INTERVAL - elapsed)
+
         try:
             resp = self.session.get(url, params=params, timeout=15)
             _last_call = time.time()
@@ -196,12 +248,13 @@ class OddsAPIClient:
         except requests.HTTPError as e:
             code = e.response.status_code
             body = (e.response.text or "")[:300]
+            markets = params.get("markets", "")
             if code == 401:
                 return {"error": "Invalid ODDS_API_KEY", "detail": body}
             if code == 422:
-                logger.error("Odds API 422 for %s (markets=%s): %s", sport, markets, body)
-                return {"error": f"Sport {sport} not available on free tier", "detail": body}
-            logger.error("Odds API error %d for %s: %s", code, sport, body)
+                logger.error("Odds API 422 for %s (markets=%s): %s", url, markets, body)
+                return {"error": "Not available on this plan/endpoint", "detail": body}
+            logger.error("Odds API error %d for %s (markets=%s): %s", code, url, markets, body)
             return {"error": f"HTTP {code}", "detail": body}
         except requests.RequestException as e:
             logger.error("Odds API request failed: %s", e)
