@@ -109,7 +109,7 @@ class OddsAPIClient:
         if not sport:
             return {"error": f"Unknown competition: {competition_code}"}
 
-        odds_data = self._get_odds(sport, markets=["h2h", "totals"])
+        odds_data = self._get_odds(sport, markets=["h2h", "totals", "btts"])
         if "error" in odds_data:
             return odds_data
 
@@ -149,7 +149,7 @@ class OddsAPIClient:
         if not sport:
             return {"error": f"Unknown competition: {competition_code}"}
 
-        odds_data = self._get_odds(sport, markets=["h2h", "totals"])
+        odds_data = self._get_odds(sport, markets=["h2h", "totals", "btts"])
         if isinstance(odds_data, dict) and "error" in odds_data:
             return odds_data
 
