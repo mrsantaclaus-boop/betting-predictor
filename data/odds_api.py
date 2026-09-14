@@ -285,6 +285,11 @@ class OddsAPIClient:
     def _keywords(name: str) -> set[str]:
         stopwords = {"fc", "ac", "as", "ss", "afc", "cf", "united",
                      "city", "sport", "club", "calcio"}
+        # Same team, different name on football-data.org vs The Odds API —
+        # without this, the keyword-intersection match below finds zero
+        # overlap and the fixture silently gets no odds (e.g. Inter's
+        # matches never had a live price and were never proposed as bets).
+        aliases = {"internazionale": "inter", "milano": "milan"}
         import re
         words = re.sub(r"[^a-z0-9\s]", "", name.lower()).split()
-        return {w for w in words if w not in stopwords and len(w) > 2}
+        return {aliases.get(w, w) for w in words if w not in stopwords and len(w) > 2}
