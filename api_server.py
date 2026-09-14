@@ -420,6 +420,16 @@ _VALUE_MARKETS: dict[str, str] = {
     "btts_no":   "btts_no_pct",
 }
 
+# Which _VALUE_MARKETS group each market belongs to — used by /api/daily-picks
+# to surface the best bet per group per match (e.g. a 1X2 pick alongside a
+# goals pick) instead of a single match-wide best that one biased market
+# (historically Under 2.5) can crowd out every time.
+_MARKET_GROUP: dict[str, str] = {
+    "home_win": "result", "draw": "result", "away_win": "result",
+    "over_2_5": "goals", "under_2_5": "goals",
+    "btts_yes": "btts", "btts_no": "btts",
+}
+
 _CONFIDENCE_RANK: dict[str, int] = {"low": 0, "medium": 1, "high": 2}
 
 
@@ -916,10 +926,17 @@ def value_bets():
 @app.route("/api/daily-picks")
 def daily_picks():
     """
-    Autonomous daily shortlist: the single best value bet per match, restricted to
-    TODAY's fixtures only, filtered by edge (>= MIN_EDGE_PCT) and model confidence
-    (predictions marked "low" confidence are excluded even if the edge looks good).
-    Ranked by edge desc, then confidence desc. Capped by `limit` (default 5).
+    Autonomous daily shortlist, restricted to TODAY's fixtures only, filtered by
+    edge (>= MIN_EDGE_PCT) and model confidence (predictions marked "low"
+    confidence are excluded even if the edge looks good).
+
+    Returns the best bet per market GROUP per match (result/1X2, goals,
+    btts) rather than a single match-wide best — otherwise one
+    consistently-inflated-edge group (historically Under 2.5) crowds out
+    every other market for every match, and e.g. 1X2 never surfaces even
+    when it has real value. A single match can therefore contribute more
+    than one pick. Ranked by edge desc, then confidence desc. Capped by
+    `limit` (default 5) across the whole list, not per match.
     """
     try:
         limit = max(1, int(request.args.get("limit", 5)))
@@ -947,7 +964,7 @@ def daily_picks():
         if not consensus:
             continue
 
-        best_bet = None
+        best_bet_by_group: dict[str, dict] = {}
         for mkt_key, pred_field in _VALUE_MARKETS.items():
             model_pct = p.get(pred_field, 0.0)
             if not model_pct:
@@ -960,8 +977,12 @@ def daily_picks():
                 continue
             implied = _implied_pct(mkt_key, consensus, model_pct)
             edge = round(model_pct - implied, 1)
-            if edge >= MIN_EDGE_PCT and (best_bet is None or edge > best_bet["edge"]):
-                best_bet = {
+            if edge < MIN_EDGE_PCT:
+                continue
+            group = _MARKET_GROUP.get(mkt_key, mkt_key)
+            current_best = best_bet_by_group.get(group)
+            if current_best is None or edge > current_best["edge"]:
+                best_bet_by_group[group] = {
                     "market_key":  mkt_key,
                     "market":      _MARKET_LABELS.get(mkt_key, mkt_key),
                     "model_pct":   round(model_pct, 1),
@@ -970,17 +991,18 @@ def daily_picks():
                     "odds":        price,
                 }
 
-        if best_bet:
+        if best_bet_by_group:
             fetched_at = p.get("odds_fetched_at")
-            picks.append({
-                "fixture_id":      p["fixture_id"],
-                "match_label":     p.get("match_label", ""),
-                "competition":     p.get("competition", ""),
-                "confidence":      confidence,
-                "odds_age":        _odds_age_label(fetched_at),
-                "odds_stale":      _is_odds_stale(fetched_at),
-                "bet":             best_bet,
-            })
+            for bet in best_bet_by_group.values():
+                picks.append({
+                    "fixture_id":      p["fixture_id"],
+                    "match_label":     p.get("match_label", ""),
+                    "competition":     p.get("competition", ""),
+                    "confidence":      confidence,
+                    "odds_age":        _odds_age_label(fetched_at),
+                    "odds_stale":      _is_odds_stale(fetched_at),
+                    "bet":             bet,
+                })
 
     picks.sort(key=lambda c: (c["bet"]["edge"], _CONFIDENCE_RANK.get(c["confidence"], 1)), reverse=True)
     return jsonify(picks[:limit])
