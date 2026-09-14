@@ -152,18 +152,20 @@ class OddsAPIClient:
         return result
 
     def probe_event_markets(self, competition_code: str, event_id: str,
-                             markets: list[str]) -> dict:
+                             markets: list[str], regions: str = "eu") -> dict:
         """Diagnostic: raw per-event odds request for arbitrary market keys.
 
         Used to check, against the provider's real behavior rather than
         guesswork, whether a market (e.g. a corners/cards line) exists at
         all for this event — an INVALID_MARKET error names the rejected
-        key, a real market returns actual bookmaker prices.
+        key, a real market returns actual bookmaker prices. `regions`
+        lets you check e.g. "uk" bookmakers, who cover more prop markets
+        than the "eu" region used by production requests.
         """
         sport = SPORT_KEYS.get(competition_code)
         if not sport:
             return {"error": f"Unknown competition: {competition_code}"}
-        return self._get_event_odds(sport, event_id, markets)
+        return self._get_event_odds(sport, event_id, markets, regions=regions)
 
     def list_sports(self) -> list[dict] | dict:
         """Return the full list of sport keys The Odds API currently recognizes.
@@ -216,13 +218,14 @@ class OddsAPIClient:
         }
         return self._request(url, params)
 
-    def _get_event_odds(self, sport: str, event_id: str, markets: list[str]) -> dict:
+    def _get_event_odds(self, sport: str, event_id: str, markets: list[str],
+                         regions: str = "eu") -> dict:
         """Per-event odds — some markets (e.g. btts) are rejected by the
         batch /sports/{sport}/odds endpoint but are available here."""
         url = f"{BASE_URL}/sports/{sport}/events/{event_id}/odds"
         params = {
             "apiKey": self.api_key,
-            "regions": "eu",
+            "regions": regions,
             "markets": ",".join(markets),
             "oddsFormat": "decimal",
         }

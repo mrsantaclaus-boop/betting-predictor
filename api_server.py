@@ -618,7 +618,8 @@ def odds_probe(competition_code: str, event_id: str):
     markets = [m.strip() for m in request.args.get("markets", "").split(",") if m.strip()]
     if not markets:
         return jsonify({"error": "Pass ?markets=key1,key2"}), 400
-    return jsonify(get_odds().probe_event_markets(competition_code, event_id, markets))
+    regions = request.args.get("regions", "eu")
+    return jsonify(get_odds().probe_event_markets(competition_code, event_id, markets, regions))
 
 
 @app.route("/api/odds/<competition_code>")
