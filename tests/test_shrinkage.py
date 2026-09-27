@@ -1,4 +1,4 @@
-from predictor.shrinkage import shrink, apply_shrinkage, SHRINKAGE_WEIGHT
+from predictor.shrinkage import shrink, apply_shrinkage, SHRINKAGE_WEIGHT, LEAGUE_AVERAGES
 from football.models import TeamStats
 import pytest
 
@@ -34,12 +34,11 @@ def test_apply_shrinkage_reduces_inflated_stat():
 
 
 def test_apply_shrinkage_noop_when_at_league_avg():
-    team = TeamStats(
-        team_name="Avg FC", competition="SA", games_played=20,
-        goals_scored_pg=1.35, goals_conceded_pg=1.35,
-        xg_pg=1.35, xga_pg=1.35, corners_pg=5.1,
-        yellow_cards_pg=2.2, red_cards_pg=0.08,
-    )
+    # Build the team from the SA prior itself, so the test follows the
+    # constants in predictor/shrinkage.py instead of hard-coding them.
+    sa = LEAGUE_AVERAGES["SA"]
+    team = TeamStats(team_name="Avg FC", competition="SA", games_played=20, **sa)
     apply_shrinkage(team, "SA")
     # When actual == league_avg, shrinkage changes nothing
-    assert abs(team.goals_scored_pg - 1.35) < 0.01
+    for field, prior in sa.items():
+        assert abs(getattr(team, field) - prior) < 0.01, field
