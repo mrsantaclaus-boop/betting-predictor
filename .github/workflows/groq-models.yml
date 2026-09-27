@@ -1,0 +1,35 @@
+name: Groq models check
+
+# Manual utility: lists the models the production Groq key can use and
+# tries one chat completion with the model given as input. Useful when Groq
+# deprecates a model (LLM_MODEL_NAME on Render must be updated).
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model id to test with a 1-token completion"
+        default: llama-3.3-70b-versatile
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: pip install requests
+      - name: List models and test one
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MODEL: ${{ github.event.inputs.model }}
+        run: |
+          python - <<'EOF'
+          import os, requests
+          h = {"Authorization": f"Bearer {os.environ['GROQ_API_KEY']}"}
+          r = requests.get("https://api.groq.com/openai/v1/models", headers=h, timeout=30)
+          print("models status", r.status_code)
+          if r.ok:
+              for m in sorted(x["id"] for x in r.json()["data"]):
+                  print("  ", m)
+          m = os.environ["MODEL"]
+          r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=h, timeout=60,
+                            json={"model": m, "messages": [{"role": "user", "content": "Say OK"}], "max_tokens": 5})
+          print(f"completion with {m}: {r.status_code} {r.text[:200]}")
+          EOF
