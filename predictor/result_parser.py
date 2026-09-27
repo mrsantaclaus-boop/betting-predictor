@@ -75,6 +75,8 @@ class BettingPrediction:
     llm_btts_yes_pct: float = 0.0
     llm_most_likely_scoreline: str = ""
     llm_analysis: str = ""
+    llm_mode: str = ""                       # "swarm" | "single" | "" (no LLM)
+    llm_panel: List = field(default_factory=list)  # mini-swarm theses (see mirofish_client)
 
     # Poisson-only predictions (pre-blend, stored for model comparison tracking)
     poisson_home_win_pct: float = 0.0
