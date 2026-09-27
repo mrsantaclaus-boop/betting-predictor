@@ -140,6 +140,8 @@ class BettingOrchestrator:
                     prediction.llm_most_likely_scoreline = llm_pred.most_likely_scoreline
                     prediction.llm_analysis            = result["report_markdown"]
                     prediction.raw_report              = result["report_markdown"]
+                    prediction.llm_mode                = result.get("mode", "single")
+                    prediction.llm_panel               = result.get("panel", []) or []
             else:
                 logger.warning("MiroFish failed: %s — continuing with Poisson-only", result.get("error"))
         else:

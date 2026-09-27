@@ -30,7 +30,11 @@ services:
       - key: LLM_BASE_URL
         value: https://api.groq.com/openai/v1
       - key: LLM_MODEL_NAME
-        value: openai/gpt-oss-120b   # llama-3.3-70b-versatile decommissioned by Groq 2026-08-16
+        value: openai/gpt-oss-120b   # judge model; llama-3.3-70b-versatile decommissioned by Groq 2026-08-16
+      - key: SWARM_ENABLED          # MiroFish mini-swarm: 6 analyst personas + judge (false = single call)
+        value: "true"
+      - key: SWARM_PERSONA_MODELS   # persona calls rotate over these (each has its own Groq budget)
+        value: openai/gpt-oss-20b,qwen/qwen3.8-27b
 
       # ── Football data ───────────────────────────────────────────────────────
       - key: FOOTBALL_DATA_API_KEY

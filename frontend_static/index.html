@@ -330,6 +330,13 @@
              style="margin-top:10px;padding:10px 12px;background:#0d1117;border:1px solid #21262d;border-radius:8px;font-size:.8rem;color:#8b949e;line-height:1.5">
           {{ p.prediction_summary }}
         </div>
+        <div v-if="p.llm_panel && p.llm_panel.length"
+             style="margin-top:8px;padding:8px 12px;background:#0d1117;border:1px solid #21262d;border-radius:8px;font-size:.76rem;color:#8b949e">
+          <span style="text-transform:uppercase;letter-spacing:.05em;font-size:.68rem;color:#6e7681">🐟 MiroFish panel</span>
+          <span v-for="a in p.llm_panel" :key="a.role" style="display:inline-block;margin:3px 8px 0 0">
+            <span style="color:#c9d1d9">{{ a.label }}</span>: <strong style="color:#58a6ff">{{ a.verdict }}</strong> {{ a.scoreline }}
+          </span>
+        </div>
         <div v-if="p.live_odds&&p.live_odds.consensus" class="pred-odds">
           <span class="dim">Live odds:</span>
           <span class="odd h">{{ p.live_odds.consensus.home }}</span>
@@ -856,6 +863,17 @@
                style="margin-top:10px;padding:12px 14px;background:#161b22;border:1px solid #21262d;border-radius:8px;font-size:.82rem;color:#c9d1d9;line-height:1.55">
             <span style="font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:#6e7681;display:block;margin-bottom:5px">Analyst summary</span>
             {{ activePred.prediction_summary }}
+          </div>
+          <div v-if="activePred.llm_panel && activePred.llm_panel.length"
+               style="margin-top:10px;padding:12px 14px;background:#161b22;border:1px solid #21262d;border-radius:8px">
+            <span style="font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:#6e7681;display:block;margin-bottom:6px">🐟 MiroFish panel — {{ activePred.llm_panel.length }} analysts debated, the judge blended them</span>
+            <div v-for="a in activePred.llm_panel" :key="a.role"
+                 style="display:flex;gap:10px;align-items:flex-start;font-size:.8rem;color:#c9d1d9;padding:5px 0;border-top:1px solid #21262d">
+              <span style="min-width:160px;color:#8b949e">{{ a.label }}</span>
+              <span style="min-width:22px;font-weight:700;color:#58a6ff">{{ a.verdict }}</span>
+              <span style="min-width:92px;color:#8b949e;font-variant-numeric:tabular-nums">{{ a.home_win_pct }}/{{ a.draw_pct }}/{{ a.away_win_pct }}</span>
+              <span style="flex:1;line-height:1.45">{{ a.argument }}</span>
+            </div>
           </div>
           <div v-if="activePred.poisson_top_scorelines&&activePred.poisson_top_scorelines.length" style="margin-top:10px">
             <div style="font-size:.72rem;color:#6e7681;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Score probabilities (Poisson)</div>

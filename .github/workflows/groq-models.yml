@@ -7,8 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: "Model id to test with a 1-token completion"
-        default: llama-3.3-70b-versatile
+        description: "Judge model id to test"
+        default: openai/gpt-oss-120b
+      swarm:
+        description: "Also run the MiroFish mini-swarm on a sample dossier"
+        default: "true"
 
 jobs:
   check:
@@ -23,6 +26,7 @@ jobs:
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           MODEL: ${{ github.event.inputs.model }}
+          SWARM: ${{ github.event.inputs.swarm }}
         run: |
           python - <<'EOF'
           import os, requests
@@ -53,4 +57,29 @@ jobs:
               print(content[-600:])
           else:
               print(r.text[:300])
+
+          if os.environ.get("SWARM", "true") == "true":
+              import time, logging
+              logging.basicConfig(level=logging.INFO, format="%(message)s")
+              os.environ["LLM_API_KEY"] = os.environ["GROQ_API_KEY"]
+              os.environ["LLM_MODEL_NAME"] = m
+              import importlib, predictor.mirofish_client as mc
+              importlib.reload(mc)
+              seed = open("tests/fixtures/sample_seed.md", encoding="utf-8").read()
+              prompt = ("Simulate expert football analysts and fans debating the outcome of Genoa CFC vs ACF Fiorentina "
+                        "(Serie A, 10 October 2026). Use all statistical evidence to build consensus predictions. In the final "
+                        "report, include a clearly labelled 'BETTING PREDICTIONS' section with probability percentages for: match "
+                        "result (1X2), Over/Under 2.5 goals, Over/Under 3.5 goals, Both Teams To Score, Over/Under 9.5 corners, "
+                        "Over/Under 3.5 yellow cards, red card probability, and the most likely scoreline. Format the predictions "
+                        "as a JSON block inside the report.")
+              t = time.time()
+              res = mc.MiroFishClient().run_match_prediction(seed, prompt, "Genoa CFC vs ACF Fiorentina — Serie A 10/10/2026")
+              print(f"\n=== SWARM RESULT: status={res['status']} mode={res.get('mode')} panel={len(res.get('panel', []))} in {time.time()-t:.1f}s")
+              for th in res.get("panel", []):
+                  print(f"  {th['label']:36s} {th['verdict']}  {th['home_win_pct']}/{th['draw_pct']}/{th['away_win_pct']}  {th['scoreline']}  {th['argument'][:90]}")
+              from predictor.result_parser import ResultParser
+              p = ResultParser().parse(res.get("report_markdown", ""))
+              print(f"parsed: source={p.parse_source} 1X2={p.home_win_pct}/{p.draw_pct}/{p.away_win_pct} over2.5={p.over_2_5_pct} scoreline={p.most_likely_scoreline}")
+              print("--- report tail ---")
+              print(res.get("report_markdown", res.get("error", ""))[-900:])
           EOF
