@@ -83,22 +83,27 @@ def _safe_float(val: str) -> float:
         return 0.0
 
 
-def _acc(stats: dict, team: str, scored: int, conceded: int, box: dict) -> None:
+def _acc(stats: dict, team: str, scored: int, conceded: int, box: dict,
+         opp_box: dict | None = None) -> None:
     """Accumulate one match worth of stats for a team.
 
-    `box` is {statistic name: displayValue} from a boxscore team entry.
+    `box` is {statistic name: displayValue} from a boxscore team entry;
+    `opp_box` the opponent's, used for shots conceded (xGA proxy).
     ESPN's stat names are `wonCorners`, `shotsOnTarget`, `totalShots`,
     `yellowCards`, `redCards`, `foulsCommitted` (verified 2026-09-27).
     """
     if team not in stats:
         stats[team] = {"scored": [], "conceded": [], "shots": [],
-                       "shots_ot": [], "corners": [], "yellow": [],
-                       "red": [], "xg": [], "xga": []}
+                       "shots_ot": [], "shots_against": [], "sot_against": [],
+                       "corners": [], "yellow": [], "red": [], "xg": [], "xga": []}
     s = stats[team]
+    opp_box = opp_box or {}
     s["scored"].append(scored)
     s["conceded"].append(conceded)
     s["shots"].append(_safe_float(box.get("totalShots", "0")))
     s["shots_ot"].append(_safe_float(box.get("shotsOnTarget", box.get("shotsOnGoal", "0"))))
+    s["shots_against"].append(_safe_float(opp_box.get("totalShots", "0")))
+    s["sot_against"].append(_safe_float(opp_box.get("shotsOnTarget", opp_box.get("shotsOnGoal", "0"))))
     s["corners"].append(_safe_float(box.get("wonCorners", box.get("cornerKicks", "0"))))
     s["yellow"].append(_safe_float(box.get("yellowCards", "0")))
     s["red"].append(_safe_float(box.get("redCards", "0")))
@@ -322,10 +327,10 @@ class EspnClient:
                 tid = str(bt.get("team", {}).get("id", ""))
                 box_by_id[tid] = {s["name"]: s.get("displayValue", "0")
                                   for s in bt.get("statistics", [])}
-            _acc(stats, home_name, home_score, away_score,
-                 box_by_id.get(str(home["team"].get("id", "")), {}))
-            _acc(stats, away_name, away_score, home_score,
-                 box_by_id.get(str(away["team"].get("id", "")), {}))
+            home_box = box_by_id.get(str(home["team"].get("id", "")), {})
+            away_box = box_by_id.get(str(away["team"].get("id", "")), {})
+            _acc(stats, home_name, home_score, away_score, home_box, away_box)
+            _acc(stats, away_name, away_score, home_score, away_box, home_box)
 
         return stats
 
