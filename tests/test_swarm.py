@@ -124,6 +124,17 @@ def test_429_is_retried(client, monkeypatch):
     assert r["mode"] == "swarm" and len(calls) == 8   # one extra call for the retry
 
 
+def test_extract_json_tolerates_thinking_and_prose():
+    from predictor.mirofish_client import _extract_json, build_request_payload
+    wrapped = ('<think>Let me weigh {home: strong} vs {away}...</think>\n'
+               'Here is my thesis:\n```json\n{"verdict": "X", "home_win_pct": 33, "argument": "a {tight} game"}\n```')
+    assert _extract_json(wrapped) == {"verdict": "X", "home_win_pct": 33, "argument": "a {tight} game"}
+    assert _extract_json("no json here { broken") is None
+    assert _extract_json("") is None
+    assert build_request_payload("qwen/qwen3.8-27b", [])["reasoning_format"] == "hidden"
+    assert "reasoning_format" not in build_request_payload("openai/gpt-oss-20b", [])
+
+
 def test_label_split_and_persona_labels():
     assert _split_label(LABEL) == ("Genoa CFC", "ACF Fiorentina", "Serie A")
     assert _split_label("A vs B") == ("A", "B", "league")

@@ -69,6 +69,10 @@ def build_request_payload(model: str, messages: list[dict],
     }
     if model.startswith("openai/gpt-oss") or model.startswith("qwen/"):
         payload["reasoning_effort"] = "low"
+    if model.startswith("qwen/"):
+        # Qwen3 otherwise returns "<think>…</think>" before the answer, and its
+        # thinking is full of braces that break JSON extraction.
+        payload["reasoning_format"] = "hidden"
     return payload
 
 
@@ -130,15 +134,44 @@ def _strip_simulation_instructions(seed_text: str) -> str:
 
 
 def _extract_json(text: str) -> Optional[dict]:
+    """
+    First JSON object in `text` that parses. Tolerates reasoning blocks
+    (<think>…</think>), code fences and prose containing stray braces:
+    every '{' is tried as a start and matched by brace depth.
+    """
     if not text:
         return None
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if not m:
-        return None
-    try:
-        return json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    starts = [i for i, ch in enumerate(text) if ch == "{"]
+    for start in starts:
+        depth = 0
+        in_str = False
+        esc = False
+        for j in range(start, len(text)):
+            ch = text[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        data = json.loads(text[start:j + 1])
+                        if isinstance(data, dict):
+                            return data
+                    except json.JSONDecodeError:
+                        pass
+                    break
+    return None
 
 
 def _num(v, default: float = 0.0) -> float:
