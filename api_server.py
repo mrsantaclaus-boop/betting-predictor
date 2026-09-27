@@ -201,20 +201,24 @@ def _save_pred(fixture_id: int, match_label: str, competition: str, data: dict):
             )
 
 
-def _load_preds() -> list[dict]:
+def _load_preds(limit: int = 100) -> list[dict]:
+    """Most recent `limit` predictions (default 100, as the UI expects)."""
+    limit = max(1, int(limit))
     if _USE_PG:
         with _get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT fixture_id, match_label, competition, created_at, data "
-                    "FROM predictions ORDER BY created_at DESC LIMIT 100"
+                    "FROM predictions ORDER BY created_at DESC LIMIT %s",
+                    (limit,),
                 )
                 rows = cur.fetchall()
     else:
         with _get_conn() as conn:
             rows = conn.execute(
                 "SELECT fixture_id, match_label, competition, created_at, data "
-                "FROM predictions ORDER BY created_at DESC LIMIT 100"
+                "FROM predictions ORDER BY created_at DESC LIMIT ?",
+                (limit,),
             ).fetchall()
     out = []
     for fid, label, comp, ts, raw in rows:
@@ -446,6 +450,36 @@ def _is_today_utc(iso_date: str | None) -> bool:
         return False
 
 
+def _kickoff_of(p: dict) -> datetime | None:
+    """
+    Kickoff time of a stored prediction (UTC-aware) or None.
+    Newer records carry `match_date`; older ones only have the odds'
+    `commence_time` or the dd/mm/yyyy date inside the `match` label.
+    """
+    raw = p.get("match_date") or p.get("live_odds", {}).get("commence_time")
+    if raw:
+        try:
+            dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            pass
+    import re
+    m = re.search(r"(\d{2})/(\d{2})/(\d{4})", p.get("match", "") or "")
+    if m:
+        d, mo, y = (int(x) for x in m.groups())
+        try:
+            return datetime(y, mo, d, 23, 59, tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def _has_kicked_off(p: dict) -> bool:
+    """True when the match has (very likely) already started."""
+    ko = _kickoff_of(p)
+    return bool(ko) and ko <= datetime.now(timezone.utc)
+
+
 def _odds_age_label(fetched_at: str | None) -> str:
     """Return human-readable age like '2h ago', empty string if unknown."""
     if not fetched_at:
@@ -548,9 +582,9 @@ def _fixture_list():
 @app.route("/api/health")
 def health():
     import os as _os
-    # Count predictions with at least one valid xG value as a data quality proxy
+    # Whole table, not just the UI page of 100
     try:
-        preds = _load_preds()
+        preds = _load_preds(limit=100000)
         total_preds = len(preds)
         resolved = sum(1 for p in preds if p.get("result_fetched_at"))
         with_odds = sum(1 for p in preds if p.get("live_odds", {}).get("consensus"))
@@ -750,6 +784,7 @@ def predict():
         prediction = get_orch().predict_fixture(fixture)
         data = prediction.to_dict()
         data["competition_code"] = fixture.competition_code  # stored for per-competition analysis
+        data["match_date"] = fixture.match_date.isoformat()   # lets value-bets/daily-picks skip played matches
         # Fetch odds first so they are persisted alongside the prediction
         try:
             if os.getenv("ODDS_API_KEY"):
@@ -776,13 +811,32 @@ def predict():
 
 @app.route("/api/predictions")
 def list_predictions():
+    """Most recent predictions. `?limit=` (default 100, max 1000)."""
     try:
-        return jsonify(_load_preds())
+        limit = min(1000, max(1, int(request.args.get("limit", 100))))
+    except (TypeError, ValueError):
+        limit = 100
+    try:
+        return jsonify(_load_preds(limit=limit))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 _ESPN_SYNC_CODES: frozenset[str] = frozenset({"ECL", "BSA", "WC", "WCQA", "WCQC", "WCQAS", "WCQAF"})
+
+# Older records stored only the competition name; map it back to a code.
+_COMP_NAME_TO_CODE: dict[str, str] = {
+    "Serie A": "SA", "Serie B": "SB", "Champions League": "CL",
+    "UEFA Europa League": "EL", "UEFA Conference League": "ECL",
+    "UEFA Super Cup": "USC", "FIFA World Cup": "WC",
+    "WCQ Europe": "WCQE", "WCQ Americas": "WCQA", "WCQ CONCACAF": "WCQC",
+    "WCQ Asia": "WCQAS", "WCQ Africa": "WCQAF", "Brasileirao Serie A": "BSA",
+    "WCQ CONMEBOL": "WCQA",
+}
+
+
+def _comp_code_of(p: dict) -> str:
+    return p.get("competition_code") or _COMP_NAME_TO_CODE.get(p.get("competition", ""), "")
 
 
 @app.route("/api/results/sync", methods=["POST"])
@@ -801,7 +855,7 @@ def results_sync():
 
     for p in preds:
         fid = p["fixture_id"]
-        comp_code = p.get("competition_code") or ""
+        comp_code = _comp_code_of(p)
 
         try:
             if comp_code in _ESPN_SYNC_CODES:
@@ -822,22 +876,7 @@ def results_sync():
             skipped += 1
             continue
 
-        # ── Corner + card stats via FBref scraping (no API key needed) ──────
-        # Single combined call: one match-report fetch feeds both parsers,
-        # instead of fetching the same page twice.
-        corners: dict = {}
-        cards: dict = {}
-        try:
-            comp_code = getattr(fixture, "competition_code", "") or ""
-            date_str  = fixture.match_date.strftime("%Y-%m-%d")
-            corners, cards = get_fbref().get_match_corners_and_cards(
-                comp_code,
-                fixture.home_team,
-                fixture.away_team,
-                date_str,
-            )
-        except Exception as e:
-            logger.debug("FBref corner/card fetch skipped for %d: %s", fid, e)
+        corners, cards, referee = _fetch_match_stats(fixture, comp_code, fid)
 
         outcomes = _compute_outcomes(hs, as_, corners or None, cards or None)
         patch = {
@@ -849,6 +888,8 @@ def results_sync():
             patch["corner_stats"] = corners  # store raw counts for reference
         if cards:
             patch["card_stats"] = cards  # store raw counts for reference
+        if referee:
+            patch["referee_actual"] = referee
 
         _update_pred_data(fid, patch)
         updated.append({
@@ -866,6 +907,105 @@ def results_sync():
     })
 
 
+def _fetch_match_stats(fixture, comp_code: str, fid: int) -> tuple[dict, dict, str]:
+    """
+    Corners, cards and referee for a finished fixture.
+    Primary source: ESPN summary (all competitions, no key). For ESPN-sourced
+    competitions the fixture id is the ESPN event id; for football-data.org
+    ones the event is located by kickoff date + team names.
+    Fallback: FBref match report (often 403 — best effort only).
+    Returns ({}, {}, "") when nothing is available.
+    """
+    corners: dict = {}
+    cards: dict = {}
+    referee = ""
+    try:
+        stats = get_espn().get_match_stats(
+            comp_code,
+            fixture.home_team,
+            fixture.away_team,
+            kickoff=fixture.match_date,
+            espn_event_id=fid if comp_code in _ESPN_SYNC_CODES else None,
+        )
+        if stats and stats.get("finished"):
+            from football.espn_client import stats_to_outcome_inputs
+            corners, cards = stats_to_outcome_inputs(stats)
+            referee = stats.get("referee") or ""
+    except Exception as e:
+        logger.warning("ESPN match stats failed for %d: %s", fid, e)
+
+    if not corners and not cards:
+        try:
+            date_str = fixture.match_date.strftime("%Y-%m-%d")
+            corners, cards = get_fbref().get_match_corners_and_cards(
+                comp_code, fixture.home_team, fixture.away_team, date_str,
+            )
+        except Exception as e:
+            logger.debug("FBref corner/card fallback skipped for %d: %s", fid, e)
+    return corners, cards, referee
+
+
+@app.route("/api/results/backfill-stats", methods=["POST"])
+def results_backfill_stats():
+    """
+    Complete corner/card outcomes for predictions that were resolved before
+    ESPN match stats existed (they have a score but no corner_stats/card_stats).
+    Idempotent. `?limit=` caps the number of matches processed per call
+    (default 40) so a run stays well inside request timeouts.
+    """
+    try:
+        limit = max(1, int(request.args.get("limit", 40)))
+    except (TypeError, ValueError):
+        limit = 40
+
+    from datetime import datetime as _dt
+    from football.models import Fixture as _Fixture
+
+    candidates = [
+        p for p in _load_resolved_preds_full()
+        if p.get("actual_score") and not (p.get("corner_stats") and p.get("card_stats"))
+        and not p.get("stats_backfill_failed_at")
+    ]
+    updated, failed = [], []
+    for p in candidates[:limit]:
+        fid = p["fixture_id"]
+        comp_code = _comp_code_of(p)
+        kickoff = _kickoff_of(p)
+        label = p.get("match_label") or ""
+        home, _, away = label.partition(" vs ")
+        if not (comp_code and kickoff and home and away):
+            failed.append({"fixture_id": fid, "reason": "missing competition/date/teams"})
+            _update_pred_data(fid, {"stats_backfill_failed_at": _dt.now(timezone.utc).isoformat()})
+            continue
+        fixture = _Fixture(
+            fixture_id=fid, competition=p.get("competition", ""), competition_code=comp_code,
+            home_team=home.strip(), home_team_id=0, away_team=away.strip(), away_team_id=0,
+            match_date=kickoff, status="FINISHED",
+        )
+        corners, cards, referee = _fetch_match_stats(fixture, comp_code, fid)
+        if not corners and not cards:
+            failed.append({"fixture_id": fid, "reason": "no stats found"})
+            _update_pred_data(fid, {"stats_backfill_failed_at": _dt.now(timezone.utc).isoformat()})
+            continue
+        hs, as_ = p["actual_score"]["home"], p["actual_score"]["away"]
+        patch = {"outcomes": _compute_outcomes(hs, as_, corners or None, cards or None)}
+        if corners:
+            patch["corner_stats"] = corners
+        if cards:
+            patch["card_stats"] = cards
+        if referee:
+            patch["referee_actual"] = referee
+        _update_pred_data(fid, patch)
+        updated.append({"fixture_id": fid, "match": label,
+                        "corners": corners or None, "cards": cards or None})
+
+    return jsonify({
+        "updated": updated,
+        "failed": failed,
+        "remaining": max(0, len(candidates) - limit),
+    })
+
+
 @app.route("/api/value-bets")
 def value_bets():
     """
@@ -877,7 +1017,7 @@ def value_bets():
 
     results = []
     for p in preds:
-        if p.get("result_fetched_at"):
+        if p.get("result_fetched_at") or _has_kicked_off(p):
             continue
         consensus = p.get("live_odds", {}).get("consensus", {})
         if not consensus:
@@ -951,7 +1091,7 @@ def daily_picks():
     preds = _load_preds()
     picks = []
     for p in preds:
-        if p.get("result_fetched_at"):
+        if p.get("result_fetched_at") or _has_kicked_off(p):
             continue
         if p["fixture_id"] not in todays_fixture_ids:
             continue

@@ -70,9 +70,9 @@ class BettingOrchestrator:
         self._fd_competition_teams: dict[str, dict[str, int]] = {}
         # Cache of ESPN WC+WCQ results for team stats fallback
         self._espn_wc_results_cache: Optional[list] = None
-        # Cache of aggregated per-team WC stats from ESPN match summaries
-        # Tuple of (data, fetched_at) so we can expire after WC_STATS_TTL_HOURS
-        self._espn_wc_team_stats_cache: Optional[tuple] = None
+        # Cache of aggregated per-team stats from ESPN match summaries, per
+        # competition code: {code: (data, fetched_at)} expiring after _WC_STATS_TTL_HOURS
+        self._espn_team_stats_cache: dict[str, tuple] = {}
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -365,6 +365,12 @@ class BettingOrchestrator:
             fixture.away_team, code, away_form, fbref_map
         )
 
+        # Corner/card inputs: ESPN match summaries when FBref had nothing
+        # (WC keeps its own richer fallback chain below).
+        if code != "WC":
+            for stats, name in ((home_stats, fixture.home_team), (away_stats, fixture.away_team)):
+                self._safe(lambda s=stats, n=name: self._fill_corners_cards_from_espn(s, n, code))
+
         # If stats are still empty but standings data is available (in-tournament),
         # use standings goals for/against to differentiate teams.
         for stats, standing in (
@@ -556,25 +562,33 @@ class BettingOrchestrator:
                 return s
         return None
 
-    _WC_STATS_TTL_HOURS = 4  # refresh WC team stats every 4 hours
+    _WC_STATS_TTL_HOURS = 4  # refresh ESPN team stats every 4 hours
 
     def _get_espn_wc_team_stats(self) -> dict:
+        """WC-specific entry point kept for the World Cup fallback chain."""
+        return self._get_espn_team_stats("WC")
+
+    def _get_espn_team_stats(self, code: str, days_back: int = 60) -> dict:
         """
-        Fetch and cache aggregated per-team stats from all completed WC matches
-        (via ESPN summary API). Cache expires every 4 hours so new group-stage
-        results are picked up automatically without a server restart.
+        Fetch and cache aggregated per-team stats (goals, shots, corners,
+        cards) from completed matches of `code` in the last `days_back` days,
+        via the ESPN summary API. Works for any competition ESPN knows
+        (ESPN-sourced ones and the football-data.org ones alike). Cache
+        expires every 4 hours per competition so new results are picked up
+        automatically without a server restart.
         """
         import time as _time
         now = _time.monotonic()
-        if self._espn_wc_team_stats_cache is not None:
-            data, fetched_at = self._espn_wc_team_stats_cache
+        cached = self._espn_team_stats_cache.get(code)
+        if cached is not None:
+            data, fetched_at = cached
             age_hours = (now - fetched_at) / 3600
             if age_hours < self._WC_STATS_TTL_HOURS:
                 return data
-            logger.info("WC team stats cache expired (%.1fh old) — refreshing", age_hours)
+            logger.info("ESPN %s team stats cache expired (%.1fh old) — refreshing", code, age_hours)
 
         raw = self._safe(
-            lambda: self.espn_client.get_wc_team_stats("WC"),
+            lambda: self.espn_client.get_team_stats_from_summaries(code, days_back=days_back),
             default_factory=dict,
         ) or {}
         result = {}
@@ -586,7 +600,7 @@ class BettingOrchestrator:
             from football.models import TeamStats
             ts = TeamStats(
                 team_name=team,
-                competition="WC",
+                competition=code,
                 games_played=n,
                 goals_scored_pg=avg(data["scored"]),
                 goals_conceded_pg=avg(data["conceded"]),
@@ -599,12 +613,42 @@ class BettingOrchestrator:
                 red_cards_pg=avg(data["red"]),
             )
             result[team] = ts
-            logger.info("ESPN WC stats for %s: %d games, %.2f GF, %.2f GA "
+            logger.info("ESPN %s stats for %s: %d games, %.2f GF, %.2f GA "
                         "(xg=%.2f, corners=%.2f, yellow=%.2f)",
-                        team, n, ts.goals_scored_pg, ts.goals_conceded_pg,
+                        code, team, n, ts.goals_scored_pg, ts.goals_conceded_pg,
                         ts.xg_pg, ts.corners_pg, ts.yellow_cards_pg)
-        self._espn_wc_team_stats_cache = (result, now)
+        self._espn_team_stats_cache[code] = (result, now)
         return result
+
+    def _fill_corners_cards_from_espn(self, stats: TeamStats, team_name: str, code: str) -> None:
+        """
+        When FBref gave no corner/card averages for a team (scraping blocked or
+        team not found), fill them from ESPN match summaries so the corner and
+        card Poisson models get real per-team inputs instead of league averages.
+        """
+        if stats.corners_pg > 0 and stats.yellow_cards_pg > 0:
+            return
+        espn_stats = self._get_espn_team_stats(code)
+        if not espn_stats:
+            return
+        from football.team_names import match_score
+        best = max(espn_stats.items(),
+                   key=lambda kv: match_score(team_name, kv[0]), default=None)
+        if not best or match_score(team_name, best[0]) == 0:
+            return
+        ets = best[1]
+        if ets.games_played == 0:
+            return
+        if stats.corners_pg == 0 and ets.corners_pg > 0:
+            stats.corners_pg = ets.corners_pg
+        if stats.yellow_cards_pg == 0 and ets.yellow_cards_pg > 0:
+            stats.yellow_cards_pg = ets.yellow_cards_pg
+        if stats.red_cards_pg == 0 and ets.red_cards_pg > 0:
+            stats.red_cards_pg = ets.red_cards_pg
+        if stats.games_played == 0:
+            stats.games_played = ets.games_played
+        logger.info("ESPN corner/card fallback for %s (%s): %d games, corners=%.2f yellow=%.2f",
+                    team_name, best[0], ets.games_played, ets.corners_pg, ets.yellow_cards_pg)
 
     def _get_espn_wc_results(self) -> list:
         """Aggregate ESPN results across WC + all WCQ competitions (cached per instance)."""
