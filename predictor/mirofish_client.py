@@ -24,7 +24,28 @@ logger = logging.getLogger(__name__)
 
 _LLM_API_KEY   = os.getenv("LLM_API_KEY", "")
 _LLM_BASE_URL  = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
-_LLM_MODEL     = os.getenv("LLM_MODEL_NAME", "llama-3.3-70b-versatile")
+# Groq decommissioned llama-3.3-70b-versatile on 2026-08-16; gpt-oss-120b is
+# the replacement Groq recommends.
+_LLM_MODEL     = os.getenv("LLM_MODEL_NAME", "openai/gpt-oss-120b")
+
+
+def build_request_payload(model: str, messages: list[dict],
+                          temperature: float = 0.3, max_tokens: int = 4096) -> dict:
+    """
+    Chat-completion body. Reasoning models (gpt-oss, qwen3) spend part of
+    max_tokens on hidden reasoning, so the budget is larger than the old
+    2048 and reasoning effort is kept low: we want the report + JSON block,
+    not a long deliberation.
+    """
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if model.startswith("openai/gpt-oss") or model.startswith("qwen/"):
+        payload["reasoning_effort"] = "low"
+    return payload
 
 _SYSTEM_PROMPT = (
     "You are an elite football betting analyst with deep knowledge of Serie A "
@@ -83,15 +104,10 @@ class MiroFishClient:
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": self.model,
-                    "messages": [
-                        {"role": "system", "content": _SYSTEM_PROMPT},
-                        {"role": "user",   "content": user_message},
-                    ],
-                    "temperature": 0.3,
-                    "max_tokens": 2048,
-                },
+                json=build_request_payload(self.model, [
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user",   "content": user_message},
+                ]),
                 timeout=120,
             )
             response.raise_for_status()
