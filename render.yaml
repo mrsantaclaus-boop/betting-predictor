@@ -30,7 +30,7 @@ services:
       - key: LLM_BASE_URL
         value: https://api.groq.com/openai/v1
       - key: LLM_MODEL_NAME
-        value: llama-3.3-70b-versatile
+        value: openai/gpt-oss-120b   # llama-3.3-70b-versatile decommissioned by Groq 2026-08-16
 
       # ── Football data ───────────────────────────────────────────────────────
       - key: FOOTBALL_DATA_API_KEY

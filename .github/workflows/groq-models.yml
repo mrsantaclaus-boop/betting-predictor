@@ -14,7 +14,11 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - run: pip install requests
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
       - name: List models and test one
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -29,7 +33,24 @@ jobs:
               for m in sorted(x["id"] for x in r.json()["data"]):
                   print("  ", m)
           m = os.environ["MODEL"]
-          r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=h, timeout=60,
-                            json={"model": m, "messages": [{"role": "user", "content": "Say OK"}], "max_tokens": 5})
-          print(f"completion with {m}: {r.status_code} {r.text[:200]}")
+          # Same request shape the app uses (predictor/mirofish_client.py):
+          # a report that must end with a BETTING PREDICTIONS JSON block.
+          import sys
+          sys.path.insert(0, ".")
+          from predictor.mirofish_client import build_request_payload, _SYSTEM_PROMPT
+          user = ("Home team: strong attack (2.1 xG/game), away team: weak defence (1.8 xGA/game). "
+                  "Write a short analytical report and end with a 'BETTING PREDICTIONS' section containing a JSON "
+                  "block with keys home_win_pct, draw_pct, away_win_pct, over_2_5_pct, btts_yes_pct, most_likely_scoreline.")
+          payload = build_request_payload(m, [{"role": "system", "content": _SYSTEM_PROMPT},
+                                              {"role": "user", "content": user}])
+          r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=h, timeout=120, json=payload)
+          print(f"completion with {m}: {r.status_code}")
+          if r.ok:
+              msg = r.json()["choices"][0]["message"]
+              content = msg.get("content") or ""
+              print("content chars:", len(content), "| has JSON block:", "BETTING PREDICTIONS" in content and "{" in content)
+              print("usage:", r.json().get("usage"))
+              print(content[-600:])
+          else:
+              print(r.text[:300])
           EOF
