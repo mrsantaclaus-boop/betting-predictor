@@ -776,7 +776,6 @@ def news(teams: str):
 
 
 @app.route("/api/predict", methods=["POST"])
-@require_admin
 def predict():
     body = request.get_json(force=True, silent=True) or {}
     fixture_id = body.get("fixture_id")
@@ -867,7 +866,6 @@ def _comp_code_of(p: dict) -> str:
 
 
 @app.route("/api/results/sync", methods=["POST"])
-@require_admin
 def results_sync():
     """
     Fetch final scores (and corner counts if API_FOOTBALL_KEY is set)

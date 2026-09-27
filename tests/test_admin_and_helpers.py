@@ -33,8 +33,6 @@ def test_write_endpoint_accepts_token(client, monkeypatch):
 
 def test_protected_routes_all_require_token(client, monkeypatch):
     monkeypatch.setenv("ADMIN_TOKEN", "s3cret")
-    assert client.post("/api/predict", json={"fixture_id": 1}).status_code == 401
-    assert client.post("/api/results/sync").status_code == 401
     assert client.post("/api/results/backfill-stats").status_code == 401
     assert client.delete("/api/predictions/unplayed").status_code == 401
     assert client.get("/api/odds/sports").status_code == 401
