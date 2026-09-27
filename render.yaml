@@ -1,9 +1,13 @@
 # render.yaml — Deploy SAI Tipster to Render.com (free tier)
 # Docs: https://render.com/docs/yaml-spec
+#
+# NOTE: the live service (https://betting-predictor-i9rt.onrender.com) was
+# created from the dashboard, not from this Blueprint, so this file documents
+# the intended configuration. Keep the env var list in sync with the dashboard.
 
 services:
   - type: web
-    name: sai-tipster   # your app URL will be https://sai-tipster.onrender.com
+    name: betting-predictor
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
@@ -12,13 +16,19 @@ services:
     healthCheckPath: /api/health
 
     envVars:
-      # ── LLM (Groq) ──────────────────────────────────────────────────────────
-      - key: LLM_API_KEY
-        sync: false         # set manually in Render dashboard
+      # ── Admin / security ─────────────────────────────────────────────────────
+      - key: ADMIN_TOKEN            # X-Admin-Token for predict/sync/backfill/delete/cache
+        sync: false
+      - key: ALLOWED_ORIGIN         # CORS; "*" keeps the old behaviour
+        value: "*"
 
+      # ── LLM (Groq, via MiroFish client) ─────────────────────────────────────
+      - key: USE_LLM                # "true" = Poisson + LLM blend (6-week experiment from 2026-09-28)
+        value: "true"
+      - key: LLM_API_KEY
+        sync: false                 # set manually in Render dashboard
       - key: LLM_BASE_URL
         value: https://api.groq.com/openai/v1
-
       - key: LLM_MODEL_NAME
         value: llama-3.3-70b-versatile
 
@@ -26,7 +36,7 @@ services:
       - key: FOOTBALL_DATA_API_KEY
         sync: false
 
-      # ── API-Football (WCQ + Brasileirao) ────────────────────────────────────
+      # ── API-Football (optional; WCQ/BSA now come from ESPN) ─────────────────
       - key: API_FOOTBALL_KEY
         sync: false
 
@@ -37,32 +47,27 @@ services:
       # ── News APIs ───────────────────────────────────────────────────────────
       - key: NEWS_API_KEY
         sync: false
-
       - key: GNEWS_API_KEY
         sync: false
 
-      # ── MiroFish ─────────────────────────────────────────────────────────────
-      - key: MIROFISH_API_URL
-        value: http://localhost:5001
+      # ── Database (Supabase PostgreSQL; SQLite fallback when unset) ──────────
+      - key: DATABASE_URL
+        sync: false
 
       # ── App ──────────────────────────────────────────────────────────────────
       - key: PORT
         value: 8080
-
       - key: FLASK_ENV
         value: production
-
       - key: PRED_DB_PATH
         value: /app/data/predictions.db
-
       - key: LOCAL_ZEP_DB_PATH
         value: /app/data/local_memory.db
-
       - key: CACHE_DB_PATH
         value: /app/data/cache.db
 
-    # Persistent disk — keeps prediction database and memory across deploys
-    disk:
-      name: sai-tipster-data
-      mountPath: /app/data
-      sizeGB: 1
+      # MIROFISH_API_URL (http://localhost:5001) is no longer used: the
+      # MiroFish client calls the LLM directly. Left out on purpose.
+
+    # No persistent disk: the free plan does not support disks, and
+    # predictions persist in Supabase via DATABASE_URL.

@@ -42,4 +42,7 @@
 
   EXPOSE 8080
 
-CMD ["python", "api_server.py"]
+  # Gunicorn instead of Flask's development server. 2 workers × 4 threads fits
+  # Render's free instance; --timeout 180 covers a prediction with the LLM
+  # call (Groq timeout is 120 s).
+CMD ["gunicorn", "-w", "2", "--threads", "4", "--timeout", "180", "-b", "0.0.0.0:8080", "api_server:app"]
