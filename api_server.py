@@ -52,7 +52,7 @@ from football import FootballDataClient, ApiFootballClient, FBrefScraper, EspnCl
 from data.odds_api import OddsAPIClient
 from data.news_fetcher import NewsFetcher
 from data.cache import get_cache, TTL
-from predictor.orchestrator import BettingOrchestrator
+from predictor.orchestrator import BettingOrchestrator, USE_LLM
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,7 +63,30 @@ logger = logging.getLogger(__name__)
 # ── App setup ─────────────────────────────────────────────────────────────────────────
 
 app = Flask(__name__, static_folder="frontend_static", static_url_path="")
-CORS(app, origins="*")
+# The frontend is served by this same app, so cross-origin access is only
+# needed for tooling. ALLOWED_ORIGIN="*" (the default) keeps the old behaviour.
+CORS(app, origins=[o.strip() for o in os.getenv("ALLOWED_ORIGIN", "*").split(",") if o.strip()])
+
+
+def require_admin(fn):
+    """
+    Protects endpoints that write data or spend API quota. The caller must
+    send `X-Admin-Token` equal to the ADMIN_TOKEN env var. When the server
+    has no ADMIN_TOKEN configured the endpoint is disabled (503), never open.
+    """
+    import hmac
+    from functools import wraps
+
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        expected = os.getenv("ADMIN_TOKEN", "")
+        if not expected:
+            return jsonify({"error": "ADMIN_TOKEN is not configured on the server"}), 503
+        supplied = request.headers.get("X-Admin-Token", "")
+        if not supplied or not hmac.compare_digest(supplied, expected):
+            return jsonify({"error": "admin token missing or invalid"}), 401
+        return fn(*args, **kwargs)
+    return wrapper
 
 _orchestrator: BettingOrchestrator | None = None
 _fd_client: FootballDataClient | None = None
@@ -595,7 +618,8 @@ def health():
         "status": "ok",
         "time": datetime.now(timezone.utc).isoformat(),
         "odds_quota": get_odds().quota_remaining,
-        "llm_enabled": _os.getenv("USE_LLM", "false").lower() == "true",
+        "llm_enabled": USE_LLM,
+        "admin_configured": bool(_os.getenv("ADMIN_TOKEN")),
         "predictions": {
             "total": total_preds,
             "resolved": resolved,
@@ -639,6 +663,7 @@ def standings(competition_code: str):
 
 
 @app.route("/api/odds/sports")
+@require_admin
 def odds_sports():
     """Diagnostic: list the sport keys The Odds API currently recognizes.
 
@@ -651,6 +676,7 @@ def odds_sports():
 
 
 @app.route("/api/odds/probe/<competition_code>/<event_id>")
+@require_admin
 def odds_probe(competition_code: str, event_id: str):
     """Diagnostic: raw per-event odds request for arbitrary market keys.
 
@@ -750,6 +776,7 @@ def news(teams: str):
 
 
 @app.route("/api/predict", methods=["POST"])
+@require_admin
 def predict():
     body = request.get_json(force=True, silent=True) or {}
     fixture_id = body.get("fixture_id")
@@ -840,6 +867,7 @@ def _comp_code_of(p: dict) -> str:
 
 
 @app.route("/api/results/sync", methods=["POST"])
+@require_admin
 def results_sync():
     """
     Fetch final scores (and corner counts if API_FOOTBALL_KEY is set)
@@ -946,6 +974,7 @@ def _fetch_match_stats(fixture, comp_code: str, fid: int) -> tuple[dict, dict, s
 
 
 @app.route("/api/results/backfill-stats", methods=["POST"])
+@require_admin
 def results_backfill_stats():
     """
     Complete corner/card outcomes for predictions that were resolved before
@@ -1324,8 +1353,29 @@ def model_calibration():
     X-axis: model's own predicted probability (not bookmaker's implied odds).
     Y-axis: empirical hit rate within each 10% probability bucket.
     Also returns Brier score per source (lower = better, 0 = perfect).
+
+    `?since=YYYY-MM-DD` restricts the sample to predictions CREATED on or
+    after that date — used to evaluate the LLM-blend experiment window.
     """
-    resolved = _load_resolved_preds()
+    since = (request.args.get("since") or "").strip()
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since)
+            if since_dt.tzinfo is None:
+                since_dt = since_dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return jsonify({"error": "since must be an ISO date, e.g. 2026-09-28"}), 400
+
+        def _created(p: dict) -> datetime | None:
+            try:
+                dt = datetime.fromisoformat(str(p.get("created_at", "")))
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                return None
+        resolved = [p for p in _load_resolved_preds_full()
+                    if (_created(p) or datetime.min.replace(tzinfo=timezone.utc)) >= since_dt]
+    else:
+        resolved = _load_resolved_preds()
 
     MARKETS = {
         "home_win": ("home_win_pct",  "llm_home_win_pct", "poisson_home_win_pct", "home_win"),
@@ -1409,6 +1459,8 @@ def model_calibration():
         }
         for code, mkts in by_comp.items()
     }
+    result["_since"] = since or None
+    result["_sample_size"] = len(resolved)
 
     return jsonify(result)
 
@@ -1437,6 +1489,7 @@ def _delete_unplayed_preds() -> int:
 
 
 @app.route("/api/predictions/unplayed", methods=["DELETE"])
+@require_admin
 def delete_unplayed_predictions():
     """Delete stored predictions for matches that have not yet been played.
     Unplayed = no actual_score and no outcomes recorded.
@@ -1452,6 +1505,7 @@ def delete_unplayed_predictions():
 
 
 @app.route("/api/cache/clear", methods=["POST"])
+@require_admin
 def clear_cache():
     """Force-refresh all cached data."""
     body = request.get_json(force=True, silent=True) or {}

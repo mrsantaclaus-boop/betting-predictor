@@ -1,0 +1,38 @@
+name: Daily agent
+
+on:
+  schedule:
+    - cron: "0 7 * * *"    # 09:00 Rome (08:00 in winter): sync + predict + picks
+    - cron: "0 22 * * *"   # evening: sync results of today's matches
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full (sync + predict + picks) or sync"
+        default: full
+        type: choice
+        options: [full, sync]
+
+concurrency:
+  group: daily-agent
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests
+      - name: Run agent
+        env:
+          SAI_BASE_URL: ${{ secrets.SAI_BASE_URL }}
+          SAI_ADMIN_TOKEN: ${{ secrets.SAI_ADMIN_TOKEN }}
+        run: |
+          MODE="${{ github.event.inputs.mode }}"
+          if [ -z "$MODE" ]; then
+            if [ "${{ github.event.schedule }}" = "0 22 * * *" ]; then MODE=sync; else MODE=full; fi
+          fi
+          python scripts/daily_agent.py "$MODE"

@@ -34,9 +34,11 @@ from predictor.shrinkage import apply_shrinkage
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-# MiroFish (LLM) runs by default alongside Poisson and results are blended.
-# Set USE_LLM=false to disable and run Poisson-only (faster, no API key needed).
-_USE_LLM = os.getenv("USE_LLM", "true").lower() == "true"
+# MiroFish (LLM) analysis runs alongside Poisson and the results are blended
+# when USE_LLM=true (set on Render). Default is Poisson-only, which needs no
+# LLM key. This is the single place the flag is read; api_server imports it.
+USE_LLM = os.getenv("USE_LLM", "false").strip().lower() in ("1", "true", "yes")
+_USE_LLM = USE_LLM
 
 # Blend weights: how much the LLM contributes vs Poisson (0.0 = Poisson only, 1.0 = LLM only).
 # Only applied when the LLM produces a non-zero value for that market.

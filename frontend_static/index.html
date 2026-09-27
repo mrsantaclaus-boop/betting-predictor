@@ -203,6 +203,8 @@
       <button v-for="t in tabs" :key="t.key"
         :class="['nav-btn', {active: tab===t.key}]"
         @click="tab=t.key">{{ t.label }}</button>
+      <button class="nav-btn" :title="adminToken ? 'Admin token set — click to change' : 'Set admin token (needed to run predictions and sync)'"
+        @click="setAdminToken">{{ adminToken ? '🔓' : '🔑' }}</button>
     </nav>
   </header>
 
@@ -532,6 +534,38 @@
           </table>
         </div>
         <div v-else class="dim" style="font-size:.82rem;padding:8px 0">No data for this market yet.</div>
+      </div>
+
+      <!-- LLM-blend experiment (6 weeks) -->
+      <div style="margin-top:32px" v-if="experimentRows.length || experimentInfo.n === 0">
+        <div class="sec-title">🧪 Esperimento MiroFish LLM
+          <span class="dim" style="font-size:.75rem;margin-left:4px">
+            predizioni create dal {{ experimentInfo.start }} al {{ experimentInfo.end }} — N risolte: {{ experimentInfo.n }}
+          </span>
+        </div>
+        <table class="tbl" v-if="experimentRows.length">
+          <thead>
+            <tr><th style="text-align:left">Mercato</th><th>N</th><th>⚡ Blend</th><th>📐 Poisson</th><th>🤖 LLM</th><th>Verdetto</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in experimentRows" :key="row.market">
+              <td style="text-align:left">{{ mktLabel(row.market) }}</td>
+              <td>{{ row.n }}</td>
+              <td :class="row.blend !== null && row.poisson !== null && row.blend < row.poisson ? 'pos' : ''">{{ row.blend ?? '—' }}</td>
+              <td>{{ row.poisson ?? '—' }}</td>
+              <td>{{ row.llm ?? '—' }}</td>
+              <td class="dim" style="font-size:.78rem">
+                <template v-if="row.n < 30">campione piccolo</template>
+                <template v-else-if="row.blend !== null && row.poisson !== null">
+                  {{ row.blend < row.poisson ? '✅ blend migliore' : row.blend > row.poisson ? '❌ Poisson migliore' : '= pari' }}
+                </template>
+                <template v-else>—</template>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="dim" style="font-size:.82rem;padding:8px 0">Nessuna partita risolta ancora nella finestra dell'esperimento.</div>
+        <p class="dim" style="font-size:.75rem;margin-top:6px">Brier score: più basso = più preciso. Il verdetto conta solo con N ≥ 30 per mercato.</p>
       </div>
 
       <!-- Model Comparison -->
@@ -872,10 +906,37 @@
 const { createApp, ref, computed, onMounted, watch } = Vue
 
 const API = '/api'
+// Start of the 6-week LLM-blend experiment (USE_LLM=true on Render); the
+// Edge tab compares Brier scores on predictions created from this date.
+const LLM_EXPERIMENT_START = '2026-09-28'
+const LLM_EXPERIMENT_END = '2026-11-09'
 
 createApp({
   setup() {
     const tab = ref('fixtures')
+
+    // ── Admin token (write endpoints: predict, sync) ──────────────────────
+    const adminToken = ref('')
+    try { adminToken.value = localStorage.getItem('sai_admin_token') || '' } catch {}
+    function setAdminToken() {
+      const v = prompt('Admin token (X-Admin-Token). Leave empty to clear.', adminToken.value)
+      if (v === null) return
+      adminToken.value = v.trim()
+      try {
+        if (adminToken.value) localStorage.setItem('sai_admin_token', adminToken.value)
+        else localStorage.removeItem('sai_admin_token')
+      } catch {}
+    }
+    function adminHeaders(extra) {
+      const h = Object.assign({}, extra || {})
+      if (adminToken.value) h['X-Admin-Token'] = adminToken.value
+      return h
+    }
+    function adminError(r, body) {
+      if (r.status === 401) return 'Admin token missing or invalid — click 🔑 in the header to set it.'
+      if (r.status === 503 && body && /ADMIN_TOKEN/.test(body.error || '')) return 'Server has no ADMIN_TOKEN configured.'
+      return (body && body.error) || `HTTP ${r.status}`
+    }
     const tabs = [
       {key:'fixtures', label:'📅 Fixtures'},
       {key:'predictions', label:'🤖 Predictions'},
@@ -965,7 +1026,10 @@ createApp({
     }
 
     async function loadAllOdds() {
-      for (const code of ['SA','CL','ECL','WC','WCQE','WCQA','WCQC','WCQAS','WCQAF']) {
+      // Only competitions that actually have upcoming fixtures: each call
+      // costs Odds API credits, and out-of-season leagues return nothing.
+      const codes = [...new Set(fixtures.value.map(f => f.competition_code))]
+      for (const code of codes) {
         try {
           const r = await fetch(`${API}/odds/${code}`)
           if (!r.ok) continue
@@ -1025,10 +1089,10 @@ createApp({
       try {
         const r = await fetch(`${API}/predict`, {
           method:'POST',
-          headers:{'Content-Type':'application/json'},
+          headers: adminHeaders({'Content-Type':'application/json'}),
           body: JSON.stringify({fixture_id: id})
         })
-        if (!r.ok) { const e=await r.json(); throw new Error(e.error||`HTTP ${r.status}`) }
+        if (!r.ok) { const e=await r.json().catch(()=>({})); throw new Error(adminError(r, e)) }
         const p = await r.json()
         p.fixture_id = id
         p.match_label = `${f.home_team} vs ${f.away_team}`
@@ -1302,8 +1366,30 @@ createApp({
       try {
         const r = await fetch(`${API}/model-calibration`)
         if (r.ok) modelCalibData.value = await r.json()
+        const r2 = await fetch(`${API}/model-calibration?since=${LLM_EXPERIMENT_START}`)
+        if (r2.ok) experimentData.value = await r2.json()
       } catch {} finally { loadingModelCalib.value = false }
     }
+
+    // LLM-blend experiment summary: per market, Brier of blend vs poisson vs llm
+    const experimentData = ref(null)
+    const experimentRows = computed(() => {
+      const d = experimentData.value
+      if (!d) return []
+      return ['home_win','draw','away_win','over_2_5','btts_yes']
+        .filter(m => d[m])
+        .map(m => ({
+          market: m,
+          n: d[m].blend ? d[m].blend.sample_size : 0,
+          blend: d[m].blend ? d[m].blend.brier_score : null,
+          poisson: d[m].poisson ? d[m].poisson.brier_score : null,
+          llm: d[m].llm ? d[m].llm.brier_score : null,
+        }))
+    })
+    const experimentInfo = computed(() => ({
+      start: LLM_EXPERIMENT_START, end: LLM_EXPERIMENT_END,
+      n: experimentData.value ? (experimentData.value._sample_size || 0) : 0,
+    }))
 
     function compCodeFromLabel(comp) {
       if (!comp) return 'cl'
@@ -1318,8 +1404,9 @@ createApp({
     async function syncResults() {
       syncing.value = true
       try {
-        const r = await fetch(`${API}/results/sync`, { method: 'POST' })
-        const d = await r.json()
+        const r = await fetch(`${API}/results/sync`, { method: 'POST', headers: adminHeaders() })
+        const d = await r.json().catch(()=>({}))
+        if (!r.ok) { alert(`Sync failed: ${adminError(r, d)}`); return }
         if (d.updated && d.updated.length > 0) {
           await loadPredictions()
           await loadEdge()
@@ -1371,6 +1458,7 @@ createApp({
       reliabilityRanking, goalsBiasLabel, goalsBiasPositive, resultBiasLabel, resultBiasPositive,
       bttsBiasLabel, bttsBiasPositive, confidenceAnalysis,
       predSort, sortedPredictions,
+      adminToken, setAdminToken, experimentRows, experimentInfo,
       loadFixtures, loadStandings, openFixture, runPred, loadEdge, syncResults, loadValueBets,
       hasPred, hasValueMarket, isHighGoals, mktLabel, fmt, fmtShort, compClass, compCodeFromLabel,
       mkts, resultLabel, resultPct, compBadgeLabel
