@@ -131,8 +131,10 @@ def test_extract_json_tolerates_thinking_and_prose():
     assert _extract_json(wrapped) == {"verdict": "X", "home_win_pct": 33, "argument": "a {tight} game"}
     assert _extract_json("no json here { broken") is None
     assert _extract_json("") is None
-    assert build_request_payload("qwen/qwen3.8-27b", [])["reasoning_format"] == "hidden"
-    assert "reasoning_format" not in build_request_payload("openai/gpt-oss-20b", [])
+    q = build_request_payload("qwen/qwen3.8-27b", [])
+    assert q["reasoning_format"] == "hidden" and q["reasoning_effort"] == "none"
+    g = build_request_payload("openai/gpt-oss-20b", [])
+    assert "reasoning_format" not in g and g["reasoning_effort"] == "low"
 
 
 def test_label_split_and_persona_labels():

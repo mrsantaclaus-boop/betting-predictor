@@ -67,11 +67,13 @@ def build_request_payload(model: str, messages: list[dict],
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
-    if model.startswith("openai/gpt-oss") or model.startswith("qwen/"):
+    if model.startswith("openai/gpt-oss"):
         payload["reasoning_effort"] = "low"
-    if model.startswith("qwen/"):
-        # Qwen3 otherwise returns "<think>…</think>" before the answer, and its
-        # thinking is full of braces that break JSON extraction.
+    elif model.startswith("qwen/"):
+        # Groq's Qwen3 accepts reasoning_effort "none" | "default"; with the
+        # default it spends the whole token budget thinking and returns an
+        # empty answer. We want the JSON, not the deliberation.
+        payload["reasoning_effort"] = "none"
         payload["reasoning_format"] = "hidden"
     return payload
 
@@ -250,13 +252,14 @@ class MiroFishClient:
                       f"{home} vs {away} ({competition}). {instructions} {_PERSONA_FORMAT}")
             user = f"{dossier}\n\nGive your thesis now."
             try:
-                content = self._chat(model, system, user, temperature=0.7, max_tokens=400)
+                content = self._chat(model, system, user, temperature=0.7, max_tokens=900)
             except Exception as e:
                 logger.warning("[SWARM] %s (%s) failed: %s", role, model, e)
                 continue
             data = _extract_json(content)
             if not data:
-                logger.warning("[SWARM] %s returned no JSON", role)
+                logger.warning("[SWARM] %s (%s) returned no JSON; content head: %r",
+                               role, model, (content or "")[:240])
                 continue
             thesis = {
                 "role": role,
