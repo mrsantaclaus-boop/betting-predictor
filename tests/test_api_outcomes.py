@@ -1,11 +1,5 @@
-import os
-
-os.environ.setdefault(
-    "PRED_DB_PATH",
-    "/tmp/claude-0/-home-user-betting-predictor/5952ed34-7455-5553-a334-3c9350f0c1a4/scratchpad/test_predictions.db",
-)
-
-from api_server import _compute_outcomes  # noqa: E402
+# DB paths for the import-time _init_pred_db() are set in tests/conftest.py
+from api_server import _compute_outcomes
 
 
 def test_outcomes_without_corners_or_cards():

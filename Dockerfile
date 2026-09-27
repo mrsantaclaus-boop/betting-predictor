@@ -20,8 +20,8 @@
   COPY patches/backend/app/services/zep_tools.py                 mirofish/backend/app/services/zep_tools.py
   COPY patches/backend/requirements.txt                          mirofish/backend/requirements.txt
 
-  # Install dependencies
-  COPY patches/backend/requirements.txt requirements.txt
+  # Install dependencies: the app's own (mandatory) + MiroFish's (best effort)
+  COPY requirements.txt ./requirements.txt
   RUN uv pip install --system --no-cache -r requirements.txt
   RUN uv pip install --system --no-cache -r mirofish/backend/requirements.txt || true
 

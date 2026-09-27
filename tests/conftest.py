@@ -1,5 +1,18 @@
+import os
+import tempfile
+
 import pytest
-from football.models import TeamStats
+
+# api_server.py initialises its prediction DB at import time. Point it (and the
+# TTL cache) at a throwaway directory and make sure no real DATABASE_URL leaks
+# into the tests. conftest.py is imported before any test module, so this runs
+# before `from api_server import ...`.
+_TEST_DIR = tempfile.mkdtemp(prefix="sai-tipster-tests-")
+os.environ["PRED_DB_PATH"] = os.path.join(_TEST_DIR, "predictions.db")
+os.environ["CACHE_DB_PATH"] = os.path.join(_TEST_DIR, "cache.db")
+os.environ["DATABASE_URL"] = ""
+
+from football.models import TeamStats  # noqa: E402
 
 
 @pytest.fixture
