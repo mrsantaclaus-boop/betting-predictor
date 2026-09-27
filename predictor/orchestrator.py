@@ -600,14 +600,17 @@ class BettingOrchestrator:
                 continue
             def avg(lst): return round(sum(lst) / len(lst), 2) if lst else 0.0
             from football.models import TeamStats
+            from predictor.xg_proxy import xg_from_shots
+            real_xg = avg(data["xg"]) if any(x > 0 for x in data["xg"]) else 0.0
             ts = TeamStats(
                 team_name=team,
                 competition=code,
                 games_played=n,
                 goals_scored_pg=avg(data["scored"]),
                 goals_conceded_pg=avg(data["conceded"]),
-                xg_pg=avg(data["xg"]) if any(x > 0 for x in data["xg"]) else 0.0,
-                xga_pg=0.0,
+                # ESPN has no xG: estimate it from shots on target (see xg_proxy.py)
+                xg_pg=real_xg or xg_from_shots(avg(data["shots_ot"])),
+                xga_pg=xg_from_shots(avg(data.get("sot_against", []))),
                 shots_pg=avg(data["shots"]),
                 shots_on_target_pg=avg(data["shots_ot"]),
                 corners_pg=avg(data["corners"]),
@@ -624,11 +627,13 @@ class BettingOrchestrator:
 
     def _fill_corners_cards_from_espn(self, stats: TeamStats, team_name: str, code: str) -> None:
         """
-        When FBref gave no corner/card averages for a team (scraping blocked or
-        team not found), fill them from ESPN match summaries so the corner and
-        card Poisson models get real per-team inputs instead of league averages.
+        When FBref gave no xG / corner / card averages for a team (scraping
+        blocked or team not found), fill them from ESPN match summaries so the
+        Poisson models get real per-team inputs instead of league averages.
+        xG/xGA come from the shots-on-target proxy (predictor/xg_proxy.py).
         """
-        if stats.corners_pg > 0 and stats.yellow_cards_pg > 0:
+        if (stats.corners_pg > 0 and stats.yellow_cards_pg > 0
+                and stats.xg_pg > 0 and stats.xga_pg > 0):
             return
         espn_stats = self._get_espn_team_stats(code)
         if not espn_stats:
@@ -641,6 +646,10 @@ class BettingOrchestrator:
         ets = best[1]
         if ets.games_played == 0:
             return
+        if stats.xg_pg == 0 and ets.xg_pg > 0:
+            stats.xg_pg = ets.xg_pg
+        if stats.xga_pg == 0 and ets.xga_pg > 0:
+            stats.xga_pg = ets.xga_pg
         if stats.corners_pg == 0 and ets.corners_pg > 0:
             stats.corners_pg = ets.corners_pg
         if stats.yellow_cards_pg == 0 and ets.yellow_cards_pg > 0:
@@ -649,8 +658,9 @@ class BettingOrchestrator:
             stats.red_cards_pg = ets.red_cards_pg
         if stats.games_played == 0:
             stats.games_played = ets.games_played
-        logger.info("ESPN corner/card fallback for %s (%s): %d games, corners=%.2f yellow=%.2f",
-                    team_name, best[0], ets.games_played, ets.corners_pg, ets.yellow_cards_pg)
+        logger.info("ESPN fallback for %s (%s): %d games, xG=%.2f xGA=%.2f corners=%.2f yellow=%.2f",
+                    team_name, best[0], ets.games_played, ets.xg_pg, ets.xga_pg,
+                    ets.corners_pg, ets.yellow_cards_pg)
 
     def _get_espn_wc_results(self) -> list:
         """Aggregate ESPN results across WC + all WCQ competitions (cached per instance)."""
