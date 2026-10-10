@@ -13,7 +13,15 @@ After 20 games it is ~71% real data.
 from __future__ import annotations
 from football.models import TeamStats
 
-SHRINKAGE_WEIGHT = 8  # equivalent to 8 games worth of prior evidence
+# Lowered 8 -> 6 (Oct 2026): /api/model-calibration on the resolved sample
+# (n=204) showed the model under-confident on lopsided matches in both
+# directions — predicted away-win buckets of 10-30% landed at 8-20% actual,
+# and predicted home-win buckets of 60-70% landed at 71%+ actual. Shrinkage
+# pulling every team toward the league average compresses the attack/defense
+# gap between strong and weak sides, narrowing exactly this kind of mismatch.
+# A lighter prior lets real-data signal count for more sooner. Partial
+# correction, not a full fix — revisit once the resolved sample is larger.
+SHRINKAGE_WEIGHT = 6  # equivalent to 6 games worth of prior evidence
 
 # League-average per-game stats used as the Bayesian prior
 LEAGUE_AVERAGES: dict[str, dict[str, float]] = {
