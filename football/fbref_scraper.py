@@ -20,6 +20,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from .models import TeamStats
+from .team_names import keywords as _shared_name_keywords
 
 logger = logging.getLogger(__name__)
 
@@ -771,8 +772,15 @@ class FBrefScraper:
 
     @staticmethod
     def _name_keywords(name: str) -> set[str]:
-        """Extract meaningful keywords from a team name for fuzzy matching."""
-        stopwords = {"fc", "ac", "as", "ss", "afc", "cf", "inter",
-                     "calcio", "sport", "club", "united", "city"}
-        words = re.sub(r"[^a-z0-9\s]", "", name.lower()).split()
-        return {w for w in words if w not in stopwords and len(w) > 2}
+        """
+        Extract meaningful keywords from a team name for fuzzy matching.
+
+        Delegates to football.team_names.keywords(), the shared implementation,
+        instead of keeping its own stopword list. This module's previous copy
+        stopworded "inter" — fine for most clubs, but it strips the one word
+        that distinguishes "Inter Milan" from "AC Milan" (both reduce to just
+        "milan"), which silently mismatched or failed to match Inter's FBref
+        row. football/team_names.py already treats "inter" as exclusive for
+        exactly this reason.
+        """
+        return _shared_name_keywords(name)
