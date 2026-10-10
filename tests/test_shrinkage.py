@@ -9,14 +9,17 @@ def test_shrink_no_games_returns_prior():
 
 def test_shrink_many_games_stays_close_to_actual():
     result = shrink(actual=2.0, league_avg=1.35, games_played=30)
-    # (8*1.35 + 30*2.0) / 38 = 70.8/38 ≈ 1.863
-    assert abs(result - 1.863) < 0.01
+    # (W*1.35 + 30*2.0) / (W+30), following SHRINKAGE_WEIGHT instead of a
+    # hard-coded W so this doesn't break every time the weight is tuned.
+    expected = (SHRINKAGE_WEIGHT * 1.35 + 30 * 2.0) / (SHRINKAGE_WEIGHT + 30)
+    assert abs(result - expected) < 0.01
 
 
 def test_shrink_few_games_pulled_toward_prior():
     result = shrink(actual=3.0, league_avg=1.35, games_played=4)
-    # (8*1.35 + 4*3.0) / 12 = 22.8/12 = 1.9
-    assert abs(result - 1.9) < 0.01
+    # (W*1.35 + 4*3.0) / (W+4)
+    expected = (SHRINKAGE_WEIGHT * 1.35 + 4 * 3.0) / (SHRINKAGE_WEIGHT + 4)
+    assert abs(result - expected) < 0.01
     assert 1.35 < result < 3.0
 
 
