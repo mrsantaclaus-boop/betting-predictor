@@ -716,12 +716,14 @@ class BettingOrchestrator:
         base = fbref_map.get(team_name)
 
         if base is None:
-            # Fuzzy match
-            keywords = set(w.lower() for w in team_name.split()
-                           if len(w) > 2 and w.lower() not in {"fc", "ac", "as", "ss"})
+            # Fuzzy match via the shared keyword heuristic (handles aliases
+            # like "Internazionale" ↔ "Inter" and the Inter/Milan exclusivity
+            # rule — a plain, unaliased keyword split never matches FBref's
+            # "Inter" against football-data.org's "FC Internazionale Milano",
+            # silently leaving that team on an empty-stats default).
+            from football.team_names import teams_match
             for name, stats in fbref_map.items():
-                name_words = set(w.lower() for w in name.split())
-                if keywords & name_words:
+                if teams_match(team_name, name):
                     base = stats
                     break
 
