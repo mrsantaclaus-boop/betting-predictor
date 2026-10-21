@@ -13,15 +13,22 @@ After 20 games it is ~71% real data.
 from __future__ import annotations
 from football.models import TeamStats
 
-# Lowered 8 -> 6 (Oct 2026): /api/model-calibration on the resolved sample
-# (n=204) showed the model under-confident on lopsided matches in both
-# directions — predicted away-win buckets of 10-30% landed at 8-20% actual,
-# and predicted home-win buckets of 60-70% landed at 71%+ actual. Shrinkage
-# pulling every team toward the league average compresses the attack/defense
-# gap between strong and weak sides, narrowing exactly this kind of mismatch.
-# A lighter prior lets real-data signal count for more sooner. Partial
-# correction, not a full fix — revisit once the resolved sample is larger.
-SHRINKAGE_WEIGHT = 6  # equivalent to 6 games worth of prior evidence
+# Lowered 8 -> 6 (Oct 10 2026), then 6 -> 4 (Oct 21 2026).
+#
+# First cut: /api/model-calibration on the resolved sample (n=204) showed the
+# model under-confident on lopsided matches in both directions -- predicted
+# away-win buckets of 10-30% landed at 8-20% actual, and predicted home-win
+# buckets of 60-70% landed at 71%+ actual.
+#
+# Second cut: re-checked /api/model-calibration?since=2026-10-10 (n=82,
+# predictions made under the weight=6 regime) and the same pattern held at a
+# sample size large enough to trust -- predicted home-win 30-40% (n=34, the
+# largest bucket) landed at 55.9% actual, a +20.7pp gap. The first partial
+# correction wasn't enough, especially for the largest Champions League
+# mismatches (elite club vs a minnow from a weaker league), so the weight
+# comes down again by the same increment. Still a partial correction, not a
+# full fix -- revisit once the post-Oct-21 resolved sample is large enough.
+SHRINKAGE_WEIGHT = 4  # equivalent to 4 games worth of prior evidence
 
 # League-average per-game stats used as the Bayesian prior
 LEAGUE_AVERAGES: dict[str, dict[str, float]] = {
