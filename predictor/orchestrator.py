@@ -59,7 +59,7 @@ class BettingOrchestrator:
 
     # No API Football key available — route all previously AF-backed competitions via ESPN
     _API_FOOTBALL_CODES: set[str] = set()
-    _ESPN_CODES = {"ECL", "BSA", "WC", "WCQA", "WCQC", "WCQAS", "WCQAF"}
+    _ESPN_CODES = {"EL", "ECL", "BSA", "WC", "WCQA", "WCQC", "WCQAS", "WCQAF"}
 
     def __init__(self):
         self.fd_client = FootballDataClient()
