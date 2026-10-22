@@ -32,6 +32,7 @@ BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 
 # Competitions whose fixtures come from ESPN (fixture_id == ESPN event id).
 ESPN_LEAGUES: dict[str, tuple[str, str]] = {
+    "EL":    ("UEFA.EUROPA",       "UEFA Europa League"),
     "ECL":   ("UEFA.EUROPA.CONF",  "UEFA Conference League"),
     "BSA":   ("BRA.1",             "Brasileirao Serie A"),
     "WC":    ("FIFA.WORLD",        "FIFA World Cup"),
@@ -48,7 +49,6 @@ ESPN_LOOKUP_SLUGS: dict[str, str] = {
     "SA":  "ita.1",
     "SB":  "ita.2",
     "CL":  "uefa.champions",
-    "EL":  "uefa.europa",
     "USC": "uefa.super_cup",
 }
 
