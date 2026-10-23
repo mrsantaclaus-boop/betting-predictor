@@ -41,6 +41,8 @@ from typing import Optional
 import requests
 from dotenv import load_dotenv
 
+from data.cache import get_cache, TTL
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -209,27 +211,47 @@ class OddsAPIClient:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _get_odds(self, sport: str, markets: list[str]) -> list | dict:
-        url = f"{BASE_URL}/sports/{sport}/odds"
-        params = {
-            "apiKey": self.api_key,
-            "regions": "eu",
-            "markets": ",".join(markets),
-            "oddsFormat": "decimal",
-        }
-        return self._request(url, params)
+        # get_fixture_odds() is called once PER FIXTURE (from /api/predict),
+        # but this batch endpoint returns odds for every fixture in the
+        # competition at once -- without caching, predicting N fixtures in
+        # the same competition burned N identical batch requests against the
+        # 500/month free-tier quota. Shared across fixtures via the same
+        # TTL["odds"] window already used by /api/odds/<code>.
+        cache_key = f"oddsbatch:{sport}:{','.join(sorted(markets))}"
+
+        def fetch():
+            url = f"{BASE_URL}/sports/{sport}/odds"
+            params = {
+                "apiKey": self.api_key,
+                "regions": "eu",
+                "markets": ",".join(markets),
+                "oddsFormat": "decimal",
+            }
+            return self._request(url, params)
+
+        return get_cache().get_or_fetch(cache_key, fetch, TTL["odds"])
 
     def _get_event_odds(self, sport: str, event_id: str, markets: list[str],
                          regions: str = "eu") -> dict:
         """Per-event odds — some markets (e.g. btts) are rejected by the
-        batch /sports/{sport}/odds endpoint but are available here."""
-        url = f"{BASE_URL}/sports/{sport}/events/{event_id}/odds"
-        params = {
-            "apiKey": self.api_key,
-            "regions": regions,
-            "markets": ",".join(markets),
-            "oddsFormat": "decimal",
-        }
-        return self._request(url, params)
+        batch /sports/{sport}/odds endpoint but are available here.
+
+        Cached per event_id so re-predicting the same fixture within the
+        TTL window doesn't re-spend quota on an identical BTTS lookup.
+        """
+        cache_key = f"oddsevent:{sport}:{event_id}:{','.join(sorted(markets))}:{regions}"
+
+        def fetch():
+            url = f"{BASE_URL}/sports/{sport}/events/{event_id}/odds"
+            params = {
+                "apiKey": self.api_key,
+                "regions": regions,
+                "markets": ",".join(markets),
+                "oddsFormat": "decimal",
+            }
+            return self._request(url, params)
+
+        return get_cache().get_or_fetch(cache_key, fetch, TTL["odds"])
 
     def _request(self, url: str, params: dict) -> list | dict:
         global _last_call
