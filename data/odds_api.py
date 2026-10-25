@@ -42,6 +42,7 @@ import requests
 from dotenv import load_dotenv
 
 from data.cache import get_cache, TTL
+from data import odds_quota
 
 load_dotenv()
 
@@ -75,6 +76,11 @@ PREFERRED_BOOKS = [
     "bet365", "williamhill", "unibet", "bwin",
     "betfair", "pinnacle", "1xbet", "betway",
 ]
+
+def _disabled(competition_code: str) -> dict:
+    """Odds deliberately not requested for this competition (credit saving)."""
+    return {"error": f"Odds disabled for {competition_code} (credit saving)", "disabled": True}
+
 
 # Polite rate-limiting
 _MIN_INTERVAL = 2.0
@@ -117,6 +123,8 @@ class OddsAPIClient:
           "quota_remaining": N,
         }
         """
+        if competition_code in odds_quota.DISABLED:
+            return _disabled(competition_code)
         sport = SPORT_KEYS.get(competition_code)
         if not sport:
             return {"error": f"Unknown competition: {competition_code}"}
@@ -137,8 +145,10 @@ class OddsAPIClient:
         # but The Odds API does offer it per-event. Best-effort follow-up
         # call — on any failure we just keep btts_yes/btts_no null rather
         # than losing the h2h/totals odds we already have.
+        # BTTS costs one extra credit per fixture: below the low-quota threshold
+        # keep the remaining credits for h2h/totals (odds_quota.is_low()).
         event_id = event.get("id", "")
-        if event_id:
+        if event_id and not odds_quota.is_low():
             btts_event = self._get_event_odds(sport, event_id, markets=["btts"])
             if isinstance(btts_event, dict) and "error" not in btts_event:
                 btts_parsed = self._parse_event(btts_event)
@@ -194,6 +204,8 @@ class OddsAPIClient:
         request failed", otherwise a real API error (bad key, quota,
         sport not yet activated) looks identical to a genuine market gap.
         """
+        if competition_code in odds_quota.DISABLED:
+            return _disabled(competition_code)
         sport = SPORT_KEYS.get(competition_code)
         if not sport:
             return {"error": f"Unknown competition: {competition_code}"}
@@ -255,6 +267,9 @@ class OddsAPIClient:
 
     def _request(self, url: str, params: dict) -> list | dict:
         global _last_call
+        if odds_quota.is_blocked():
+            until = odds_quota.summary().get("exhausted_until")
+            return {"error": f"Odds API quota exhausted until {until}", "quota_exhausted": True}
         elapsed = time.time() - _last_call
         if elapsed < _MIN_INTERVAL:
             time.sleep(_MIN_INTERVAL - elapsed)
@@ -263,10 +278,16 @@ class OddsAPIClient:
             resp = self.session.get(url, params=params, timeout=15)
             _last_call = time.time()
 
-            # Track quota
+            # Track quota (persisted: survives Render restarts, read by /api/odds/quota)
             remaining = resp.headers.get("x-requests-remaining")
+            used = resp.headers.get("x-requests-used")
             if remaining:
-                self._quota_remaining = int(remaining)
+                self._quota_remaining = int(float(remaining))
+            if remaining or used:
+                odds_quota.record(
+                    int(float(remaining)) if remaining else None,
+                    int(float(used)) if used else None,
+                )
 
             resp.raise_for_status()
             return resp.json()
@@ -274,6 +295,12 @@ class OddsAPIClient:
             code = e.response.status_code
             body = (e.response.text or "")[:300]
             markets = params.get("markets", "")
+            if "OUT_OF_USAGE_CREDITS" in body:
+                # The provider answers 401 when the monthly credits are gone:
+                # it is not a bad key. Stop calling until the reset.
+                odds_quota.record_exhausted()
+                logger.error("Odds API quota exhausted: no more calls until the monthly reset")
+                return {"error": "Odds API quota exhausted", "quota_exhausted": True, "detail": body}
             if code == 401:
                 return {"error": "Invalid ODDS_API_KEY", "detail": body}
             if code == 422:

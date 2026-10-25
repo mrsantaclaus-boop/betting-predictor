@@ -662,6 +662,14 @@ def standings(competition_code: str):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/odds/quota")
+def odds_quota_status():
+    """The Odds API credit state (public, no secrets): remaining, used, reset
+    date, daily allowance, status ok/low/exhausted/unknown. Watched by Fedor."""
+    from data import odds_quota
+    return jsonify(odds_quota.summary())
+
+
 @app.route("/api/odds/sports")
 @require_admin
 def odds_sports():
