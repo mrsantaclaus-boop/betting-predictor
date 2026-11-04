@@ -459,6 +459,29 @@ _MARKET_GROUP: dict[str, str] = {
 
 _CONFIDENCE_RANK: dict[str, int] = {"low": 0, "medium": 1, "high": 2}
 
+_RESULT_MARKETS = {"home_win", "draw", "away_win"}
+OVERCONFIDENCE_RATIO_THRESHOLD = 1.8
+
+
+def _overconfidence_flag(market_key: str, model_pct: float, implied_pct: float) -> dict:
+    """
+    Flags a 1X2 (result) pick where the model's probability is far above
+    what the market implies -- the lopsided-match overconfidence diagnosed
+    repeatedly this season (SHRINKAGE_WEIGHT cut 8->6->4) that the shrinkage
+    tuning only partially corrected. Confirmed live on the 2026-11-03 CL
+    slate: the three result picks at ratio >= threshold (Stuttgart 2.07x,
+    Aston Villa 3.6x, Roma 1.81x away wins) all lost, while every goals/BTTS
+    pick that day performed close to its historical norm. Informational
+    only -- it doesn't filter the pick out, just flags it for the reader.
+    """
+    if market_key not in _RESULT_MARKETS or not implied_pct:
+        return {}
+    ratio = round(model_pct / implied_pct, 2)
+    return {
+        "model_market_ratio": ratio,
+        "overconfidence_warning": ratio >= OVERCONFIDENCE_RATIO_THRESHOLD,
+    }
+
 
 def _is_today_utc(iso_date: str | None) -> bool:
     """True if iso_date falls on today's date in UTC (football-data.org timestamps are UTC)."""
@@ -1079,6 +1102,7 @@ def value_bets():
                     "implied_pct": implied,
                     "edge":       edge,
                     "odds":       price,
+                    **_overconfidence_flag(mkt_key, model_pct, implied),
                 })
 
         if bets:
@@ -1164,6 +1188,7 @@ def daily_picks():
                     "implied_pct": implied,
                     "edge":        edge,
                     "odds":        price,
+                    **_overconfidence_flag(mkt_key, model_pct, implied),
                 }
 
         if best_bet_by_group:
