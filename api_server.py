@@ -879,7 +879,7 @@ def list_predictions():
         return jsonify({"error": str(e)}), 500
 
 
-_ESPN_SYNC_CODES: frozenset[str] = frozenset({"ECL", "BSA", "WC", "WCQA", "WCQC", "WCQAS", "WCQAF"})
+_ESPN_SYNC_CODES: frozenset[str] = frozenset({"EL", "ECL", "BSA", "WC", "WCQA", "WCQC", "WCQAS", "WCQAF"})
 
 # Older records stored only the competition name; map it back to a code.
 _COMP_NAME_TO_CODE: dict[str, str] = {
@@ -902,7 +902,7 @@ def results_sync():
     Fetch final scores (and corner counts if API_FOOTBALL_KEY is set)
     for all unresolved predictions and record outcomes.
     Idempotent — already-resolved predictions are skipped.
-    Routes ESPN-sourced competitions (WC, BSA, ECL, WCQ*) to the ESPN
+    Routes ESPN-sourced competitions (WC, BSA, EL, ECL, WCQ*) to the ESPN
     client since their fixture IDs are ESPN event IDs, not football-data.org IDs.
     """
     preds = _load_unresolved_preds()
