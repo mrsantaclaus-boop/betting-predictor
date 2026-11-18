@@ -292,6 +292,8 @@ def compute_poisson(
     competition_code: str = "",
     head_to_head: HeadToHead | None = None,
     is_neutral: bool = False,
+    home_adv_factor: float = 1.0,
+    rho_override: float | None = None,
 ) -> PoissonResult:
     """
     Compute the Poisson scoreline probability grid.
@@ -303,6 +305,8 @@ def compute_poisson(
     Falls back from xG → goals_scored if xG data is unavailable.
     H2H history applies a ±10% max adjustment to both lambdas.
     is_neutral=True forces home_advantage=1.0 (WC, final-stage matches).
+    home_adv_factor / rho_override: used only by the shadow trial (predictor/shadow.py);
+    the defaults leave the production model unchanged.
     """
     avg = LEAGUE_AVG_XG.get(competition_code, _DEFAULT_AVG_XG)
 
@@ -314,7 +318,7 @@ def compute_poisson(
     home_def = best(home_stats.xga_pg, home_stats.goals_conceded_pg)
     away_def = best(away_stats.xga_pg, away_stats.goals_conceded_pg)
 
-    ha = 1.0 if is_neutral else HOME_ADVANTAGE.get(competition_code, _DEFAULT_HOME_ADVANTAGE)
+    ha = 1.0 if is_neutral else HOME_ADVANTAGE.get(competition_code, _DEFAULT_HOME_ADVANTAGE) * home_adv_factor
     lambda_home = (home_att / avg) * (away_def / avg) * avg * ha
     lambda_away = (away_att / avg) * (home_def / avg) * avg
 
@@ -328,6 +332,8 @@ def compute_poisson(
     lambda_away = max(0.20, min(lambda_away, 5.0))
 
     rho = _DC_RHO_BY_COMP.get(competition_code, _DC_RHO)
+    if rho_override is not None and competition_code not in _DC_RHO_BY_COMP:
+        rho = rho_override
 
     # Raw independent Poisson grid
     grid = [

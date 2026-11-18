@@ -30,6 +30,7 @@ from predictor.mirofish_client import MiroFishClient
 from predictor.result_parser import ResultParser, BettingPrediction
 from predictor.poisson import compute_poisson, compute_corner_poisson, compute_cards_poisson
 from predictor.shrinkage import apply_shrinkage
+from predictor import shadow as _shadow
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -106,6 +107,13 @@ class BettingOrchestrator:
         # 1b. Bayesian shrinkage
         apply_shrinkage(report.home_stats, fixture.competition_code)
         apply_shrinkage(report.away_stats, fixture.competition_code)
+
+        # Shadow trial: keep the post-shrinkage, pre-form stats to test another form weight
+        try:
+            shadow_home_pre = report.home_stats.model_copy(deep=True)
+            shadow_away_pre = report.away_stats.model_copy(deep=True)
+        except Exception:
+            shadow_home_pre = shadow_away_pre = None
 
         # 1c. Blend in recent form (exponential decay)
         self._apply_form_weighting(report.home_stats, report.home_form)
@@ -214,6 +222,13 @@ class BettingOrchestrator:
             )
         except Exception as e:
             logger.warning("Poisson goals model failed (non-fatal): %s", e)
+
+        # ── Shadow trial (18/11 → 23/12/2026): candidate fixes, stored but NOT used ──
+        try:
+            prediction.shadow = self._shadow_variants(
+                fixture, report, prediction, shadow_home_pre, shadow_away_pre)
+        except Exception as e:
+            logger.warning("Shadow variants failed (non-fatal): %s", e)
 
         # ── Motivational context ──────────────────────────────────────────────
         prediction.motivation_context = self._motivation_context(
@@ -777,6 +792,34 @@ class BettingOrchestrator:
             return None
 
     # ── New helpers ───────────────────────────────────────────────────────────
+
+    def _shadow_variants(self, fixture: Fixture, report, prediction, home_pre, away_pre) -> dict:
+        """1X2 of the shadow variants (predictor/shadow.py). Never changes the prediction."""
+        llm = None
+        if prediction.llm_home_win_pct > 0 or prediction.llm_draw_pct > 0:
+            llm = (prediction.llm_home_win_pct, prediction.llm_draw_pct, prediction.llm_away_win_pct)
+
+        def poisson_fix(home_stats, away_stats):
+            p = compute_poisson(home_stats, away_stats, fixture.competition_code,
+                                head_to_head=report.head_to_head, is_neutral=fixture.is_neutral,
+                                home_adv_factor=_shadow.HOME_ADV_FACTOR, rho_override=_shadow.RHO)
+            return (p.home_win_pct, p.draw_pct, p.away_win_pct)
+
+        variants = {}
+        fix_p = poisson_fix(report.home_stats, report.away_stats)
+        variants["fix"] = {"poisson": list(fix_p), "blend": list(_shadow.blend_1x2(llm, fix_p, _LLM_WEIGHT_1X2))}
+        variants["fix_cal"] = {"blend": list(_shadow.calibrate(tuple(variants["fix"]["blend"])))}
+        if home_pre is not None and away_pre is not None:
+            self._apply_form_weighting(home_pre, report.home_form, max_recent_weight=_shadow.FORM_WEIGHT_ALT)
+            self._apply_form_weighting(away_pre, report.away_form, max_recent_weight=_shadow.FORM_WEIGHT_ALT)
+            f45 = poisson_fix(home_pre, away_pre)
+            variants["fix_form45"] = {"poisson": list(f45), "blend": list(_shadow.blend_1x2(llm, f45, _LLM_WEIGHT_1X2))}
+        return {
+            "version": _shadow.SHADOW_VERSION,
+            "variants": variants,
+            "form": {"home": _shadow.form_snapshot(report.home_form),
+                     "away": _shadow.form_snapshot(report.away_form)},
+        }
 
     @staticmethod
     def _apply_form_weighting(
