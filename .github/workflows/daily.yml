@@ -3,14 +3,15 @@ name: Daily agent
 on:
   schedule:
     - cron: "0 7 * * *"    # 09:00 Rome (08:00 in winter): sync + predict + picks
+    - cron: "0 17 * * *"   # late price for tonight's value bets (closing-line value)
     - cron: "0 22 * * *"   # evening: sync results of today's matches
   workflow_dispatch:
     inputs:
       mode:
-        description: "full (sync + predict + picks) or sync"
+        description: "full (sync + predict + picks), sync, or closing (late odds for CLV)"
         default: full
         type: choice
-        options: [full, sync]
+        options: [full, sync, closing]
 
 concurrency:
   group: daily-agent
@@ -33,6 +34,10 @@ jobs:
         run: |
           MODE="${{ github.event.inputs.mode }}"
           if [ -z "$MODE" ]; then
-            if [ "${{ github.event.schedule }}" = "0 22 * * *" ]; then MODE=sync; else MODE=full; fi
+            case "${{ github.event.schedule }}" in
+              "0 22 * * *") MODE=sync ;;
+              "0 17 * * *") MODE=closing ;;
+              *) MODE=full ;;
+            esac
           fi
           python scripts/daily_agent.py "$MODE"

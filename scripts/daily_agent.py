@@ -7,6 +7,9 @@ Runs from GitHub Actions (.github/workflows/daily.yml) twice a day:
          predict every fixture kicking off within SAI_HORIZON_HOURS that has
          no prediction yet, then print today's picks.
   sync : wake the service and sync results only (evening run).
+  closing : store a late "closing" price for value bets kicking off within
+         6 h (17:00 UTC run), so the ledger can measure closing-line value.
+         One cached batch request per competition, skipped when quota is low.
 
 Environment:
   SAI_BASE_URL       e.g. https://betting-predictor-i9rt.onrender.com
@@ -78,6 +81,18 @@ def main() -> int:
         f"predictions={health.get('predictions')}")
     if not health.get("admin_configured", True):
         raise SystemExit("ADMIN_TOKEN is not configured on the server")
+
+    # 0. Closing line (17:00 UTC run): a late price for today's value bets, for CLV in the book
+    if MODE == "closing":
+        snap = post("/api/odds/closing-snapshot?hours=6")
+        if snap.get("skipped"):
+            log(f"closing snapshot skipped: {snap['skipped']}")
+        else:
+            log(f"closing snapshot: candidates={snap.get('candidates')} stored={len(snap.get('stored', []))} "
+                f"missed={len(snap.get('missed', []))} quota_remaining={snap.get('quota_remaining')}")
+            for m in snap.get("missed", [])[:10]:
+                log(f"  missed {m.get('fixture_id')}: {m.get('reason')}")
+        return 0
 
     # 1. Results of played matches (+ corners/cards/referee)
     sync = post("/api/results/sync")
