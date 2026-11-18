@@ -27,7 +27,7 @@ import json
 import logging
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # PostgreSQL support (Supabase)
@@ -49,7 +49,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from football import FootballDataClient, ApiFootballClient, FBrefScraper, EspnClient
-from data.odds_api import OddsAPIClient
+from data.odds_api import OddsAPIClient, SPORT_KEYS
 from data.news_fetcher import NewsFetcher
 from data.cache import get_cache, TTL
 from predictor.orchestrator import BettingOrchestrator, USE_LLM
@@ -597,6 +597,137 @@ def _implied_pct(market_key: str, consensus: dict, ai_pct: float) -> float:
     return round(1 / price * 100, 1)
 
 
+def _market_implied_pct(market_key: str, consensus: dict | None) -> float | None:
+    """
+    De-vigged implied probability from REAL bookmaker odds, or None.
+
+    Unlike _implied_pct there is no fallback to the model's own probability:
+    /api/edge used to mix "market vs reality" (matches with odds) with
+    "model vs reality" (no odds: Brasileirao, over/under 3.5, corners, cards),
+    which made the market-error column unreadable. 18/11/2026.
+    """
+    sentinel = -1.0
+    v = _implied_pct(market_key, consensus or {}, sentinel)
+    return None if v == sentinel else v
+
+
+def _wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float] | tuple[None, None]:
+    """Wilson score interval for k successes in n trials, in percent (0-100)."""
+    if n <= 0:
+        return (None, None)
+    p = k / n
+    den = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / den
+    half = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / den
+    return (round(max(0.0, centre - half) * 100, 1), round(min(1.0, centre + half) * 100, 1))
+
+
+def _model_version() -> dict:
+    """What produced a prediction: deploy commit + the knobs that change the numbers."""
+    try:
+        from predictor.shrinkage import SHRINKAGE_WEIGHT as _sw
+    except Exception:  # pragma: no cover - defensive
+        _sw = None
+    return {
+        "commit": (os.getenv("RENDER_GIT_COMMIT") or "")[:7] or "local",
+        "llm": USE_LLM,
+        "llm_model": os.getenv("LLM_MODEL_NAME", "openai/gpt-oss-120b") if USE_LLM else None,
+        "swarm": os.getenv("SWARM_ENABLED", "true").strip().lower() in ("1", "true", "yes"),
+        "llm_weights": {k: os.getenv(k) for k in ("LLM_WEIGHT_1X2", "LLM_WEIGHT_GOALS", "LLM_WEIGHT_BTTS") if os.getenv(k)},
+        "shrinkage": _sw,
+    }
+
+
+def _simulate_ledger(preds: list[dict], min_edge: float = MIN_EDGE_PCT) -> dict:
+    """
+    Flat-stake book: 1 unit on every market where the model beat the odds
+    stored AT PREDICTION TIME by >= min_edge points (the same rule as
+    /api/value-bets), settled on the real outcome. Uses only real odds.
+
+    Returns totals overall, by market and by competition, each with bets,
+    wins, staked, profit, ROI %, hit rate, its Wilson interval, average odds,
+    the break-even hit rate, a ±1.96·σ band on ROI, and — when a closing
+    price was stored — the average closing-line value (CLV).
+    """
+    def _empty():
+        return {"bets": 0, "wins": 0, "profit": 0.0, "odds_sum": 0.0, "inv_odds_sum": 0.0, "profits": [], "clv": []}
+
+    total = _empty()
+    by_market: dict[str, dict] = {}
+    by_comp: dict[str, dict] = {}
+    recent: list[dict] = []
+
+    for p in preds:
+        outcomes = p.get("outcomes") or {}
+        consensus = (p.get("live_odds") or {}).get("consensus") or {}
+        if not outcomes or not consensus:
+            continue
+        closing = (p.get("closing_odds") or {}).get("consensus") or {}
+        code = p.get("competition_code") or _COMP_NAME_TO_CODE.get(p.get("competition", ""), "?")
+        for mkt_key, pred_field in _VALUE_MARKETS.items():
+            hit = outcomes.get(mkt_key)
+            model_pct = p.get(pred_field) or 0.0
+            odds_key = _ODDS_KEY_MAP.get(mkt_key)
+            price = consensus.get(odds_key) if odds_key else None
+            if hit is None or not model_pct or not price or price <= 1.0:
+                continue
+            implied = _market_implied_pct(mkt_key, consensus)
+            if implied is None or model_pct - implied < min_edge:
+                continue
+            profit = (price - 1.0) if hit else -1.0
+            close_price = closing.get(odds_key) if odds_key else None
+            clv = round((price / close_price - 1.0) * 100, 2) if close_price and close_price > 1.0 else None
+            for bucket in (total, by_market.setdefault(mkt_key, _empty()), by_comp.setdefault(code, _empty())):
+                bucket["bets"] += 1
+                bucket["wins"] += 1 if hit else 0
+                bucket["profit"] += profit
+                bucket["odds_sum"] += price
+                bucket["inv_odds_sum"] += 1.0 / price
+                bucket["profits"].append(profit)
+                if clv is not None:
+                    bucket["clv"].append(clv)
+            recent.append({
+                "fixture_id": p.get("fixture_id"), "match_label": p.get("match_label", ""),
+                "competition_code": code, "created_at": p.get("created_at"),
+                "market_key": mkt_key, "market": _MARKET_LABELS.get(mkt_key, mkt_key),
+                "model_pct": round(model_pct, 1), "implied_pct": implied,
+                "edge": round(model_pct - implied, 1), "odds": price, "won": bool(hit),
+                "profit": round(profit, 2), "closing_odds": close_price, "clv_pct": clv,
+            })
+
+    def _fmt(b: dict) -> dict:
+        n = b["bets"]
+        if n == 0:
+            return {"bets": 0, "wins": 0, "staked": 0, "profit": 0.0, "roi_pct": None,
+                    "hit_pct": None, "hit_low": None, "hit_high": None, "avg_odds": None,
+                    "breakeven_pct": None, "roi_low": None, "roi_high": None,
+                    "clv_n": 0, "avg_clv_pct": None}
+        mean = b["profit"] / n
+        var = sum((x - mean) ** 2 for x in b["profits"]) / (n - 1) if n > 1 else 0.0
+        half = 1.96 * (var / n) ** 0.5
+        lo, hi = _wilson(b["wins"], n)
+        avg_odds = b["odds_sum"] / n
+        return {
+            "bets": n, "wins": b["wins"], "staked": n, "profit": round(b["profit"], 2),
+            "roi_pct": round(mean * 100, 1),
+            "roi_low": round((mean - half) * 100, 1), "roi_high": round((mean + half) * 100, 1),
+            "hit_pct": round(b["wins"] / n * 100, 1), "hit_low": lo, "hit_high": hi,
+            # the average chance the bookmakers gave these bets (raw 1/odds): the hit rate to beat
+            "avg_odds": round(avg_odds, 2), "breakeven_pct": round(b["inv_odds_sum"] / n * 100, 1),
+            "clv_n": len(b["clv"]),
+            "avg_clv_pct": round(sum(b["clv"]) / len(b["clv"]), 2) if b["clv"] else None,
+        }
+
+    recent.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+    return {
+        "min_edge": min_edge,
+        "total": _fmt(total),
+        "by_market": {k: _fmt(v) for k, v in by_market.items()},
+        "by_competition": {k: _fmt(v) for k, v in by_comp.items()},
+        "recent": recent[:30],
+    }
+
+
 # ── Helpers ─────────────────────────────────────────────────────────────────────────────
 
 def _fixture_list():
@@ -854,6 +985,7 @@ def predict():
                 data["odds_fetched_at"] = datetime.now(timezone.utc).isoformat()
         except Exception:
             pass
+        data["model_version"] = _model_version()
         _save_pred(
             fixture_id,
             f"{fixture.home_team} vs {fixture.away_team}",
@@ -1250,9 +1382,13 @@ def edge_stats():
         return (p.get("competition_code")
                 or _NAME_TO_CODE.get(p.get("competition", ""), "?"))
 
-    # Accumulate per-market overall + per-competition
+    # Two separate questions (18/11/2026 — they used to be mixed in one number):
+    #   market : bookmaker implied % (real odds only) vs what happened -> "where the market is wrong"
+    #   model  : the model's own % vs what happened, every settled match -> "is the model calibrated"
     accum: dict[str, list] = {k: [] for k in MARKET_MAP}
     accum_by_comp: dict[str, dict[str, list]] = _dd(lambda: {k: [] for k in MARKET_MAP})
+    model_accum: dict[str, list] = {k: [] for k in MARKET_MAP}
+    model_by_comp: dict[str, dict[str, list]] = _dd(lambda: {k: [] for k in MARKET_MAP})
 
     for p in resolved:
         outcomes = p.get("outcomes", {})
@@ -1263,7 +1399,13 @@ def edge_stats():
             did_hit = outcomes.get(outcome_key)
             if did_hit is None:
                 continue
-            implied = _implied_pct(mkt_key, consensus, p.get(pred_field, 0.0))
+            model_pct = p.get(pred_field)
+            if model_pct:
+                model_accum[mkt_key].append((model_pct, did_hit))
+                model_by_comp[code][mkt_key].append((model_pct, did_hit))
+            implied = _market_implied_pct(mkt_key, consensus)
+            if implied is None:
+                continue
             accum[mkt_key].append((implied, did_hit))
             accum_by_comp[code][mkt_key].append((implied, did_hit))
 
@@ -1287,8 +1429,13 @@ def edge_stats():
                 "actual_pct": round(sum(1 for _, h in pts if h) / len(pts) * 100, 1),
                 "n":          len(pts),
             })
+        hits = sum(1 for _, hit in data_points if hit)
+        lo, hi = _wilson(hits, n)
         return {"implied_pct": avg_implied, "actual_pct": actual,
                 "edge": round(actual - avg_implied, 1),
+                "actual_low": lo, "actual_high": hi,
+                # outside the Wilson interval of what happened = unlikely to be noise alone
+                "significant": not (lo <= avg_implied <= hi),
                 "sample_size": n, "calibration_buckets": cal_buckets}
 
     result = {}
@@ -1300,6 +1447,17 @@ def edge_stats():
     for code, mkt_accum in accum_by_comp.items():
         by_comp[code] = {mkt: _mkt_stats(pts) for mkt, pts in mkt_accum.items()}
     result["_by_competition"] = by_comp
+
+    # The model against reality (implied_pct here = the model's own average %)
+    result["_model"] = {mkt: _mkt_stats(pts) for mkt, pts in model_accum.items()}
+    result["_model_by_competition"] = {
+        code: {mkt: _mkt_stats(pts) for mkt, pts in m.items()} for code, m in model_by_comp.items()
+    }
+    result["_meta"] = {
+        "settled": len(resolved),
+        "with_odds": sum(1 for p in resolved if (p.get("live_odds") or {}).get("consensus")),
+        "odds_markets": sorted(_ODDS_KEY_MAP),
+    }
 
     return jsonify(result)
 
@@ -1380,6 +1538,83 @@ def _shadow_report(preds: list[dict], n_boot: int = 2000, seed: int = 42) -> dic
 def shadow_report():
     """Shadow trial 18/11 -> 23/12/2026: production vs candidate fixes (read-only)."""
     return jsonify(_shadow_report(_load_resolved_preds_full()))
+
+
+@app.route("/api/ledger")
+def ledger():
+    """
+    The cash book: flat 1-unit stake on every value bet (model beat the odds
+    stored at prediction time by >= min_edge points), settled on real results.
+    ?min_edge=3 (default MIN_EDGE_PCT).
+    """
+    try:
+        min_edge = float(request.args.get("min_edge", MIN_EDGE_PCT))
+    except (TypeError, ValueError):
+        min_edge = MIN_EDGE_PCT
+    return jsonify(_simulate_ledger(_load_resolved_preds_full(), min_edge=min_edge))
+
+
+@app.route("/api/odds/closing-snapshot", methods=["POST"])
+@require_admin
+def closing_snapshot():
+    """
+    Store a late ("closing") price for value-bet predictions kicking off within
+    ?hours=6, so the ledger can measure closing-line value (CLV). Uses only the
+    batch h2h/totals request per competition (cached 60 min, no per-event BTTS
+    call) and is skipped when the Odds API quota is low.
+    """
+    from data import odds_quota as _oq
+    if not os.getenv("ODDS_API_KEY"):
+        return jsonify({"skipped": "no ODDS_API_KEY"}), 200
+    if _oq.is_low() or _oq.is_blocked():
+        return jsonify({"skipped": "odds quota low", "quota": _oq.summary()}), 200
+    try:
+        hours = max(1.0, min(24.0, float(request.args.get("hours", 6))))
+    except (TypeError, ValueError):
+        hours = 6.0
+
+    now = datetime.now(timezone.utc)
+    targets = []
+    for p in _load_unresolved_preds():
+        ko = _kickoff_of(p)
+        consensus = (p.get("live_odds") or {}).get("consensus") or {}
+        if not ko or not consensus or not (now <= ko <= now + timedelta(hours=hours)):
+            continue
+        has_value = False
+        for mkt_key, pred_field in _VALUE_MARKETS.items():
+            implied = _market_implied_pct(mkt_key, consensus)
+            if implied is not None and (p.get(pred_field) or 0) - implied >= MIN_EDGE_PCT:
+                has_value = True
+                break
+        if has_value:
+            targets.append(p)
+
+    client = get_odds()
+    stored, missed = [], []
+    for p in targets:
+        code = p.get("competition_code")
+        home, _, away = (p.get("match_label") or "").partition(" vs ")
+        sport = SPORT_KEYS.get(code) if code else None
+        if not sport or not home or not away:
+            missed.append({"fixture_id": p["fixture_id"], "reason": "no sport key / teams"})
+            continue
+        batch = client._get_odds(sport, markets=["h2h", "totals"])
+        if isinstance(batch, dict):
+            missed.append({"fixture_id": p["fixture_id"], "reason": batch.get("error", "odds error")})
+            continue
+        event = client._find_event(batch, home, away)
+        if not event:
+            missed.append({"fixture_id": p["fixture_id"], "reason": "event not listed"})
+            continue
+        parsed = client._parse_event(event)
+        _update_pred_data(p["fixture_id"], {
+            "closing_odds": {"consensus": parsed.get("consensus", {})},
+            "closing_fetched_at": now.isoformat(),
+        })
+        stored.append({"fixture_id": p["fixture_id"], "match_label": p.get("match_label")})
+
+    return jsonify({"hours": hours, "candidates": len(targets), "stored": stored,
+                    "missed": missed, "quota_remaining": client.quota_remaining})
 
 
 @app.route("/api/prediction-history")
