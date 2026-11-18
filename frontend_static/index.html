@@ -193,7 +193,7 @@
     .chapter h2 .no{font:600 .8rem var(--serif);font-variant:small-caps;color:var(--red);min-width:24px;letter-spacing:.05em}
     .chapter .note{color:var(--mute);font:.9rem/1.5 var(--serif);margin:8px 0 6px}
     .tag{display:inline-block;padding:0 6px;font:600 .62rem/1.6 var(--sans);text-transform:uppercase;letter-spacing:.06em;border:1px solid currentColor;margin-left:6px;vertical-align:1px}
-    .tag.small{color:var(--mute)} .tag.watch{color:var(--gold)}
+    .tag.small{color:var(--mute)} .tag.watch{color:var(--gold)} .tag.earn{color:var(--green)} .tag.lose{color:var(--red)}
     .sum{display:flex;justify-content:space-between;border-top:3px double var(--rule);margin-top:10px;padding-top:7px;font:.8rem var(--mono)}
     details.fold{margin-top:16px;border-top:1px solid var(--rule);padding-top:10px}
     details.fold>summary{cursor:pointer;font:1.05rem var(--serif)}
@@ -423,7 +423,7 @@
           </thead>
           <tbody>
             <tr v-for="b in vb.bets" :key="b.market_key">
-              <td style="text-align:left">{{ b.market }}</td>
+              <td style="text-align:left">{{ b.market }}<span v-if="trackRecord(b.market_key)" :class="['tag', trackRecord(b.market_key).verdict === 'earning' ? 'earn' : trackRecord(b.market_key).verdict === 'losing' ? 'lose' : 'small']" :title="'Track record in the book: ' + trackRecord(b.market_key).text">{{ trackRecord(b.market_key).verdict }}</span></td>
               <td>{{ b.model_pct }}%</td>
               <td>{{ b.implied_pct }}%</td>
               <td class="pos"><strong>+{{ b.edge }}%</strong></td>
@@ -456,8 +456,35 @@
         <div>Record<strong>{{ correctCount }} of {{ activePredHistory.length }} results right ({{ historyAccuracy }}%).</strong></div>
       </div>
 
+      <section class="chapter" v-if="ledger && edgeComp === 'ALL'">
+        <h2><span class="no">i</span>The book</h2>
+        <p class="note">One unit staked on every value bet the model flagged (model beat the odds stored at prediction time by ≥ {{ ledger.min_edge }} points), settled on the real result. This is the only number that says whether the model makes money.</p>
+        <div v-if="ledger.total.bets" class="balance" style="margin-top:6px">
+          <div>Bets<strong>{{ ledger.total.bets }} · {{ ledger.total.wins }} won</strong></div>
+          <div>Profit<strong :class="ledger.total.profit >= 0 ? 'pos' : 'neg'">{{ ledger.total.profit >= 0 ? '+' : '' }}{{ ledger.total.profit }} units</strong></div>
+          <div>Return<strong>{{ ledger.total.roi_pct > 0 ? '+' : '' }}{{ ledger.total.roi_pct }}% <span class="dim" style="font-size:.85rem">likely {{ ledger.total.roi_low }} to {{ ledger.total.roi_high }}%</span></strong></div>
+          <div>Hit rate<strong>{{ ledger.total.hit_pct }}% <span class="dim" style="font-size:.85rem">needs {{ ledger.total.breakeven_pct }}% to break even</span></strong></div>
+          <div v-if="ledger.total.clv_n">Closing line<strong :class="ledger.total.avg_clv_pct > 0 ? 'pos' : 'neg'">{{ ledger.total.avg_clv_pct > 0 ? '+' : '' }}{{ ledger.total.avg_clv_pct }}% <span class="dim" style="font-size:.85rem">on {{ ledger.total.clv_n }} bets</span></strong></div>
+        </div>
+        <p v-else class="state">No settled value bets with stored odds yet.</p>
+        <div v-if="ledgerRows.length" class="scroll-x"><table class="tbl">
+          <thead><tr><th class="l">Market</th><th>Bets</th><th>Profit</th><th>Return</th><th class="hide-s">Likely range</th><th>Verdict</th></tr></thead>
+          <tbody>
+            <tr v-for="r in ledgerRows" :key="r.key">
+              <td class="l name">{{ r.label }}</td>
+              <td>{{ r.bets }}</td>
+              <td :class="r.profit >= 0 ? 'pos' : 'neg'">{{ r.profit >= 0 ? '+' : '' }}{{ r.profit }}</td>
+              <td>{{ r.roi_pct > 0 ? '+' : '' }}{{ r.roi_pct }}%</td>
+              <td class="hide-s mute">{{ r.roi_low }} to {{ r.roi_high }}%</td>
+              <td><span :class="['tag', r.verdict === 'earning' ? 'earn' : r.verdict === 'losing' ? 'lose' : 'small']">{{ r.verdict }}</span></td>
+            </tr>
+          </tbody>
+        </table></div>
+        <p class="note" style="font-size:.82rem">Markets with at least 50 bets and a positive return get the ⚡ Value badge on fixtures. "Earning" means the whole likely range is above zero; "positive · unproven" means it is ahead so far but could still be luck.</p>
+      </section>
+
       <section class="chapter">
-        <h2><span class="no">i</span>When to trust it</h2>
+        <h2><span class="no">{{ chapterNo('trust') }}</span>When to trust it</h2>
         <p class="note">When the model is at least this confident, how often did the call come true? Bold = it kept its promise. Fewer than 30 matches = too few to lean on.</p>
         <div class="scroll-x"><table class="tbl">
           <thead><tr><th class="l">Call</th><th>≥ 50%</th><th>≥ 60%</th><th>≥ 70%</th></tr></thead>
@@ -474,27 +501,41 @@
       </section>
 
       <section class="chapter">
-        <h2><span class="no">ii</span>Where the market is wrong</h2>
-        <p class="note">Market error = how often it happened minus what the odds implied, across every settled match. Inside the ± band it is noise. With {{ edgeRows.length }} markets, one or two will cross the band by chance alone: treat those as patterns to watch, not value.</p>
+        <h2><span class="no">{{ chapterNo('market') }}</span>Where the market is wrong</h2>
+        <p class="note">Only the {{ edgeMeta.with_odds }} of {{ edgeMeta.settled }} settled matches with real bookmaker odds. "Odds said" is the average chance the bookmakers gave; "happened" is how often it came true, with the range it could plausibly be. If the odds fall outside that range, the market has been leaning the wrong way. With {{ edgeRows.length }} markets, one may cross by chance alone: a pattern to watch, not a bet.</p>
         <div class="scroll-x"><table class="tbl">
-          <thead><tr><th class="l">Market</th><th class="hide-s">Implied</th><th>Actual</th><th>Error</th><th>± noise</th><th class="hide-s">N</th></tr></thead>
+          <thead><tr><th class="l">Market</th><th>Odds said</th><th>Happened</th><th class="hide-s">Likely range</th><th>Gap</th><th class="hide-s">N</th></tr></thead>
           <tbody>
             <tr v-for="r in edgeRows" :key="r.key">
               <td class="l name">{{ r.label }}<span v-if="r.signif" class="tag watch">watch</span></td>
-              <td class="hide-s">{{ r.implied }}%</td>
+              <td>{{ r.implied }}%</td>
               <td>{{ r.actual }}%</td>
+              <td class="hide-s mute">{{ r.low }}–{{ r.high }}%</td>
               <td :class="r.signif ? (r.err > 0 ? 'pos' : 'neg') : 'mute'">{{ r.err > 0 ? '+' : '' }}{{ r.err }}</td>
-              <td class="mute">{{ r.ci }}</td>
               <td class="hide-s">{{ r.n }}</td>
             </tr>
           </tbody>
         </table></div>
-        <div class="sum"><span>Outside the noise band</span><span>{{ edgeRows.filter(r => r.signif).length }} of {{ edgeRows.length }}</span></div>
+        <div class="sum"><span>Odds outside the likely range</span><span>{{ edgeRows.filter(r => r.signif).length }} of {{ edgeRows.length }}</span></div>
       </section>
 
       <section class="chapter">
-        <h2><span class="no">iii</span>Is it calibrated?</h2>
-        <p class="note">What the model said against what happened, band by band. Red = off by more than 10 points; grey = fewer than 30 matches in the band.</p>
+        <h2><span class="no">{{ chapterNo('model') }}</span>Is the model calibrated?</h2>
+        <p class="note">The same test on the model itself, on every settled match: what the model said on average against what happened. Markets without bookmaker odds (over/under 3.5, corners, cards) are judged only here.</p>
+        <div class="scroll-x"><table class="tbl">
+          <thead><tr><th class="l">Market</th><th>Model said</th><th>Happened</th><th class="hide-s">Likely range</th><th>Gap</th><th class="hide-s">N</th></tr></thead>
+          <tbody>
+            <tr v-for="r in modelRows" :key="r.key">
+              <td class="l name">{{ r.label }}<span v-if="r.signif" :class="['tag', r.err > 0 ? 'small' : 'lose']">{{ r.err > 0 ? 'too cautious' : 'too high' }}</span></td>
+              <td>{{ r.implied }}%</td>
+              <td>{{ r.actual }}%</td>
+              <td class="hide-s mute">{{ r.low }}–{{ r.high }}%</td>
+              <td :class="r.signif ? 'neg' : 'mute'">{{ r.err > 0 ? '+' : '' }}{{ r.err }}</td>
+              <td class="hide-s">{{ r.n }}</td>
+            </tr>
+          </tbody>
+        </table></div>
+        <p class="note" style="margin-top:14px">Band by band, for one market. Red = off by more than 10 points; grey = fewer than 30 matches in the band.</p>
         <div class="chips" style="margin:8px 0">
           <button v-for="mkt in calibMkts" :key="mkt" :class="['chip', {active: calibMkt===mkt}]" @click="calibMkt=mkt">{{ mktLabel(mkt) }}</button>
         </div>
@@ -513,22 +554,23 @@
       </section>
 
       <section class="chapter" v-if="edgeComp === 'ALL'">
-        <h2><span class="no">iv</span>By competition</h2>
+        <h2><span class="no">{{ chapterNo('comp') }}</span>By competition</h2>
         <p class="note">1X2 calls right, per competition. Small samples swing: read them as a direction, not a verdict.</p>
         <table class="tbl">
-          <thead><tr><th class="l">Competition</th><th>Right</th><th>Matches</th><th>Hit rate</th></tr></thead>
+          <thead><tr><th class="l">Competition</th><th>Right</th><th>Matches</th><th>Hit rate</th><th class="hide-s">Book return</th></tr></thead>
           <tbody>
             <tr v-for="c in compAccuracy" :key="c.code">
               <td class="l name">{{ c.label }}<span v-if="c.n < 30" class="tag small">small sample</span></td>
               <td>{{ c.hits }}</td><td>{{ c.n }}</td>
               <td :class="c.n < 30 ? 'mute' : c.rate >= 55 ? 'pos' : c.rate < 50 ? 'neg' : ''">{{ c.rate }}%</td>
+              <td class="hide-s" :class="!c.book || c.book.bets < 30 ? 'mute' : c.book.roi_pct > 0 ? 'pos' : 'neg'">{{ c.book && c.book.bets ? (c.book.roi_pct > 0 ? '+' : '') + c.book.roi_pct + '% · ' + c.book.bets + ' bets' : '—' }}</td>
             </tr>
           </tbody>
         </table>
       </section>
 
       <section class="chapter">
-        <h2><span class="no">{{ edgeComp === 'ALL' ? 'v' : 'iv' }}</span>Archive</h2>
+        <h2><span class="no">{{ chapterNo('archive') }}</span>Archive</h2>
         <div class="scroll-x"><table class="tbl" style="min-width:520px">
           <thead><tr><th class="l">Match</th><th class="l">Comp</th><th>Score</th><th>Called</th><th>Was</th><th></th></tr></thead>
           <tbody>
@@ -1011,6 +1053,7 @@ createApp({
       } catch {} finally { loadingEdge.value = false }
       loadModelCalib()
       loadPredHistory()
+      loadLedger()
     }
 
     async function loadPredHistory() {
@@ -1146,23 +1189,30 @@ createApp({
     const activeEdgeData = computed(() => {
       if (!edgeData.value) return null
       if (edgeComp.value === 'ALL') {
-        // strip internal _by_competition key
-        const d = {...edgeData.value}; delete d._by_competition; return d
+        // strip internal keys (_by_competition, _model, _model_by_competition, _meta)
+        return Object.fromEntries(Object.entries(edgeData.value).filter(([k]) => !k.startsWith('_')))
       }
       return edgeData.value._by_competition?.[edgeComp.value] ?? null
     })
+    // The model's own % against reality (all settled matches, with or without odds)
+    const activeModelData = computed(() => {
+      if (!edgeData.value) return null
+      if (edgeComp.value === 'ALL') return edgeData.value._model ?? null
+      return edgeData.value._model_by_competition?.[edgeComp.value] ?? null
+    })
+    const edgeMeta = computed(() => (edgeData.value && edgeData.value._meta) || { settled: 0, with_odds: 0 })
 
     const calibMkts = computed(() => {
-      if (!activeEdgeData.value) return []
-      return Object.keys(activeEdgeData.value).filter(k => {
-        const d = activeEdgeData.value[k]
+      if (!activeModelData.value) return []
+      return Object.keys(activeModelData.value).filter(k => {
+        const d = activeModelData.value[k]
         return d && d.calibration_buckets && d.calibration_buckets.length > 0
       })
     })
 
     const calibBuckets = computed(() => {
-      if (!activeEdgeData.value || !activeEdgeData.value[calibMkt.value]) return []
-      return activeEdgeData.value[calibMkt.value].calibration_buckets || []
+      if (!activeModelData.value || !activeModelData.value[calibMkt.value]) return []
+      return activeModelData.value[calibMkt.value].calibration_buckets || []
     })
 
     const modelCalibData = ref(null)
@@ -1252,29 +1302,72 @@ createApp({
 
     // Value badge: only when THIS fixture's model probability beats the de-vigged odds by ≥ 5 points.
     // (Before 18/11/2026 it lit up on every predicted fixture whenever any market had a positive historical edge.)
+    // ...and only on markets whose track record in the book is "earning" (>= 50 bets, positive return).
+    const MKTS_LEDGER_KEYS = { 'Goals O/U 2.5': ['over_2_5', 'under_2_5'], 'BTTS': ['btts_yes', 'btts_no'] }
     function hasValueMarket(fixture_id) {
       const p = predMap.value[fixture_id]
       if (!p) return false
-      return mkts(p).some(m => (m.aEdge ?? -1) >= 5 || (m.bEdge ?? -1) >= 5)
+      const ok = earningMarkets.value
+      return mkts(p).some(m => {
+        const keys = MKTS_LEDGER_KEYS[m.label]
+        if (!keys) return false
+        return ((m.aEdge ?? -1) >= 5 && ok.has(keys[0])) || ((m.bEdge ?? -1) >= 5 && ok.has(keys[1]))
+      })
     }
 
     // ── Ledger (Edge tab) ────────────────────────────────────────────────
     const archivePage = ref(0)
     const correctCount = computed(() => activePredHistory.value.filter(p => p.result_correct).length)
     const archiveRows = computed(() => activePredHistory.value.slice(archivePage.value * 20, archivePage.value * 20 + 20))
-    // Market error with a ±1.96σ noise band (binomial, at the implied probability)
-    const edgeRows = computed(() => {
-      const d = activeEdgeData.value
+    // Rows "said vs happened" with the Wilson range computed by the server (/api/edge)
+    function saidVsHappened(d) {
       if (!d) return []
       return Object.entries(d)
         .filter(([k, s]) => !k.startsWith('_') && s && s.sample_size > 0 && s.edge !== null && s.implied_pct !== null)
-        .map(([k, s]) => {
-          const p = s.implied_pct / 100
-          const ci = Math.round(196 * Math.sqrt(p * (1 - p) / s.sample_size) * 10) / 10
-          return { key: k, label: mktLabel(k), implied: s.implied_pct, actual: s.actual_pct, err: s.edge, n: s.sample_size, ci, signif: Math.abs(s.edge) > ci }
-        })
+        .map(([k, s]) => ({ key: k, label: mktLabel(k), implied: s.implied_pct, actual: s.actual_pct, err: s.edge,
+                            n: s.sample_size, low: s.actual_low, high: s.actual_high, signif: !!s.significant }))
         .sort((a, b) => Math.abs(b.err) - Math.abs(a.err))
+    }
+    const edgeRows = computed(() => saidVsHappened(activeEdgeData.value))    // market: real odds only
+    const modelRows = computed(() => saidVsHappened(activeModelData.value))  // model: every settled match
+
+    // The book (/api/ledger): flat-stake results of the model's value bets
+    const ledger = ref(null)
+    async function loadLedger() {
+      try {
+        const r = await fetch(`${API}/ledger`)
+        if (r.ok) ledger.value = await r.json()
+      } catch {}
+    }
+    const LEDGER_MIN_BETS = 50
+    function ledgerVerdict(s) {
+      if (!s || !s.bets) return 'no bets'
+      if (s.bets < LEDGER_MIN_BETS) return 'too few'
+      if (s.roi_pct <= 0) return 'losing'
+      return s.roi_low > 0 ? 'earning' : 'positive · unproven'
+    }
+    const ledgerRows = computed(() => {
+      if (!ledger.value) return []
+      return Object.entries(ledger.value.by_market)
+        .map(([k, s]) => ({ key: k, label: mktLabel(k), ...s, verdict: ledgerVerdict(s) }))
+        .sort((a, b) => b.bets - a.bets)
     })
+    // Markets that have earned the ⚡ badge: >= 50 settled value bets and a positive return (Fedor, 18/11)
+    const earningMarkets = computed(() => new Set(ledgerRows.value.filter(r => r.bets >= LEDGER_MIN_BETS && r.roi_pct > 0).map(r => r.key)))
+    function trackRecord(marketKey) {
+      const s = ledger.value && ledger.value.by_market[marketKey]
+      return s && s.bets ? { verdict: ledgerVerdict(s), text: `${s.roi_pct > 0 ? '+' : ''}${s.roi_pct}% over ${s.bets} bets` } : null
+    }
+    // Roman chapter numbers follow the chapters actually shown
+    function chapterNo(id) {
+      const order = []
+      if (ledger.value && edgeComp.value === 'ALL') order.push('book')
+      order.push('trust', 'market', 'model')
+      if (edgeComp.value === 'ALL') order.push('comp')
+      order.push('archive')
+      const R = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii']
+      return R[order.indexOf(id)] || ''
+    }
     // Hit rate when the model is confident, per call (Fedor, 18/11: thresholds per market, flag N < 30)
     const TRUST_CALLS = [
       { key: 'result', label: '1X2 call', pct: p => Math.max(p.home_win_pct || 0, p.draw_pct || 0, p.away_win_pct || 0), hit: p => !!p.result_correct },
@@ -1311,7 +1404,8 @@ createApp({
         const o = by[c] || (by[c] = { code: c, label: COMP_LABEL[c] || c, n: 0, hits: 0 })
         o.n++; if (p.result_correct) o.hits++
       }
-      return Object.values(by).map(o => ({ ...o, rate: Math.round(o.hits / o.n * 100) })).sort((a, b) => b.n - a.n)
+      const book = (ledger.value && ledger.value.by_competition) || {}
+      return Object.values(by).map(o => ({ ...o, rate: Math.round(o.hits / o.n * 100), book: book[o.code] || null })).sort((a, b) => b.n - a.n)
     })
     function isHighGoals(fixture_id) {
       const p = predMap.value[fixture_id]
@@ -1354,7 +1448,8 @@ createApp({
       loadFixtures, loadStandings, openFixture, runPred, loadEdge, syncResults, loadValueBets,
       hasPred, hasValueMarket, isHighGoals, mktLabel, fmt, fmtShort, compClass, compCodeFromLabel,
       mkts, resultLabel, resultPct, compBadgeLabel,
-      archivePage, archiveRows, correctCount, edgeRows, marketTrust, trustLine, compAccuracy
+      archivePage, archiveRows, correctCount, edgeRows, marketTrust, trustLine, compAccuracy,
+      modelRows, edgeMeta, ledger, ledgerRows, trackRecord, chapterNo
     }
   }
 }).mount('#app')
