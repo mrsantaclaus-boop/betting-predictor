@@ -1304,6 +1304,84 @@ def edge_stats():
     return jsonify(result)
 
 
+def _shadow_report(preds: list[dict], n_boot: int = 2000, seed: int = 42) -> dict:
+    """
+    Compare production 1X2 with the shadow variants (predictor/shadow.py) on the
+    settled matches predicted during the trial. Brier and log-loss, paired
+    bootstrap interval on the Brier difference, average said vs happened.
+    """
+    import math as _m
+    import random as _r
+    from predictor import shadow as sh
+
+    keys = ("home_win", "draw", "away_win")
+    rows = []
+    for p in preds:
+        s = p.get("shadow") or {}
+        o = p.get("outcomes") or {}
+        if not s.get("variants") or not o or (p.get("created_at") or "") < sh.TRIAL_START:
+            continue
+        if not all(o.get(k) is not None for k in keys):
+            continue
+        rows.append((p, [1.0 if o.get(k) else 0.0 for k in keys]))
+
+    def brier(v, y):
+        return sum((v[i] / 100 - y[i]) ** 2 for i in range(3))
+
+    def logloss(v, y):
+        i = y.index(1.0) if 1.0 in y else 0
+        return -_m.log(max(v[i] / 100, 1e-4))
+
+    prod = [[p.get("home_win_pct") or 0, p.get("draw_pct") or 0, p.get("away_win_pct") or 0] for p, _ in rows]
+    ys = [y for _, y in rows]
+    n = len(rows)
+    real = [round(100 * sum(y[i] for y in ys) / n, 1) for i in range(3)] if n else None
+
+    def summary(vs):
+        return {
+            "brier": round(sum(brier(v, y) for v, y in zip(vs, ys)) / n, 4),
+            "logloss": round(sum(logloss(v, y) for v, y in zip(vs, ys)) / n, 4),
+            "avg_said": [round(sum(v[i] for v in vs) / n, 1) for i in range(3)],
+        }
+
+    out = {"trial_start": sh.TRIAL_START, "trial_end": sh.TRIAL_END, "settled": n,
+           "min_settled": sh.MIN_SETTLED, "min_gain": sh.MIN_GAIN,
+           "happened": real, "production": summary(prod) if n else None, "variants": {}}
+    if not n:
+        return out
+    rng = _r.Random(seed)
+    for name in ("fix", "fix_cal", "fix_form45"):
+        vs, idx = [], []
+        for j, (p, _) in enumerate(rows):
+            v = ((p["shadow"]["variants"].get(name) or {}).get("blend"))
+            if v:
+                vs.append(v); idx.append(j)
+        if not vs:
+            continue
+        diffs = [brier(prod[j], ys[j]) - brier(v, ys[j]) for v, j in zip(vs, idx)]  # > 0 = variant better
+        m = len(diffs)
+        boots = sorted(sum(diffs[rng.randrange(m)] for _ in range(m)) / m for _ in range(n_boot))
+        lo, hi = boots[int(0.025 * n_boot)], boots[int(0.975 * n_boot) - 1]
+        gain = sum(diffs) / m
+        sub_ys = [ys[j] for j in idx]
+        summ = {
+            "n": m,
+            "brier": round(sum(brier(v, y) for v, y in zip(vs, sub_ys)) / m, 4),
+            "logloss": round(sum(logloss(v, y) for v, y in zip(vs, sub_ys)) / m, 4),
+            "avg_said": [round(sum(v[i] for v in vs) / m, 1) for i in range(3)],
+            "gain_vs_production": round(gain, 4), "gain_low": round(lo, 4), "gain_high": round(hi, 4),
+        }
+        summ["passes"] = bool(m >= sh.MIN_SETTLED and gain >= sh.MIN_GAIN and lo > 0)
+        out["variants"][name] = summ
+    return out
+
+
+@app.route("/api/shadow-report")
+def shadow_report():
+    """Shadow trial 18/11 -> 23/12/2026: production vs candidate fixes (read-only)."""
+    return jsonify(_shadow_report(_load_resolved_preds_full()))
+
+
 @app.route("/api/prediction-history")
 def prediction_history():
     """
