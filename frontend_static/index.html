@@ -8,10 +8,11 @@
   <style>
     /* SAI Tipster · "The Ledger" on pink newsprint (design 18/11/2026) */
     :root{
-      --paper:#fae6e2; --paper-2:#f4d6d0; --card:#fdf2ef; --rule:#231d1f; --rule-soft:#e0bdb6;
-      --ink:#231d1f; --ink-2:#3d3335; --mute:#6c5a5d;
-      --red:#a1231b; --green:#2c6a43; --gold:#855600; --blue:#1f3f86;
-      --red-t:#f3cdc6; --green-t:#d8e7d6; --gold-t:#f2e0bd; --blue-t:#dfe3f0;
+      --paper:#fde9eb; --paper-2:#f9d3d8; --card:#ffffff; --rule:#111; --rule-soft:#ddc0c0;
+      --ink:#111; --ink-2:#2e2a2b; --mute:#6a5a5d;
+      --pink:#ff286e; --black:#0b0b0b;
+      --red:#c4161c; --green:#1b7a3d; --gold:#8a5a00; --blue:#1a45a8;
+      --red-t:#fbd0d0; --green-t:#d3ecd9; --gold-t:#ffe39a; --blue-t:#d9e3f8;
       --serif:Charter,'Bitstream Charter','Sitka Text',Cambria,Georgia,serif;
       --sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
       --mono:ui-monospace,'Cascadia Mono','SF Mono',Consolas,monospace;
@@ -199,6 +200,96 @@
     details.fold>summary{cursor:pointer;font:1.05rem var(--serif)}
     details.fold[open]>summary{margin-bottom:8px}
     .pager{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:8px;font-size:.82rem;color:var(--mute)}
+
+    /* ===== Gazzetta-style layer: pink paper, white boxes, black bands, solid colour tags ===== */
+    .hdr{background:var(--black);border-bottom:4px solid var(--pink);color:#fff}
+    .hdr-name{color:#fff;font:900 1.35rem/1 var(--sans);text-transform:uppercase;letter-spacing:.02em}
+    .hdr-sub{color:#f9bac1}
+    .nav-btn{color:#d9d0d1;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-size:.78rem}
+    .nav-btn:hover{color:#fff}
+    .nav-btn.active{color:#fff;border-bottom-color:var(--pink)}
+    .page-title{font:900 2rem/1.1 var(--sans);text-transform:uppercase;letter-spacing:-.01em}
+    .kicker{color:var(--pink)}
+    .chip{background:#fff;border-color:var(--rule-soft);font-weight:600}
+    .chip.active{background:var(--black);border-color:var(--black);color:#fff;box-shadow:inset 0 -3px 0 var(--pink)}
+    .btn{background:#fff;border-radius:3px;font-weight:700}
+    .btn.primary{background:var(--black);color:#fff}
+    .btn.ghost{background:transparent}
+    .badge{background:var(--black);border-color:var(--black);color:#fff;border-radius:2px}
+    .badge.green{background:var(--green);border-color:var(--green);color:#fff}
+    .badge.yellow{background:var(--gold-t);border-color:var(--gold);color:var(--gold)}
+    .badge.value{background:var(--gold-t);border-color:var(--gold-t);color:#3a2600}
+    .badge.goals{background:var(--blue);border-color:var(--blue);color:#fff}
+    .state.error{border-left:4px solid var(--red)}
+
+    .fixture-grid{border-top:0;gap:14px}
+    .fixture{background:#fff;border:1px solid var(--rule-soft);border-left:5px solid var(--black);border-radius:3px;padding:12px 14px;box-shadow:0 1px 2px rgba(120,40,60,.08)}
+    .fixture.predicted{border-left-color:var(--pink)}
+    .fixture:hover{background:#fff;box-shadow:0 3px 10px rgba(120,40,60,.18);transform:translateY(-1px)}
+    .f-team{font:700 1rem/1.3 var(--sans)}
+    .f-vs{color:var(--pink);font:800 .7rem var(--sans);text-transform:uppercase;font-style:normal}
+
+    .pred-list{border-top:0;gap:20px}
+    .pred-card{background:#fff;border:1px solid var(--rule-soft);border-top:5px solid var(--pink);border-radius:3px;padding:18px 20px;box-shadow:0 2px 6px rgba(120,40,60,.10)}
+    .pred-hdr h3{font:800 1.35rem/1.2 var(--sans);letter-spacing:-.01em}
+    .confidence{border:0;color:#fff;border-radius:2px;padding:2px 9px}
+    .confidence.high{background:var(--green);color:#fff} .confidence.medium{background:var(--gold-t);color:#3a2600} .confidence.low{background:var(--red);color:#fff}
+    .result-pill{background:var(--black);color:#fff;padding:7px 14px;border-radius:3px;font:700 .95rem var(--sans);text-transform:uppercase;letter-spacing:.03em;gap:14px;margin-bottom:12px}
+    .result-pill strong{color:var(--pink);font:800 1.5rem var(--sans)}
+    .goals-banner{background:var(--blue-t);border:0;border-left:5px solid var(--blue);padding:8px 12px;border-radius:2px;color:var(--blue);font-weight:600}
+    .score-badge{background:var(--black);color:#fff;border-color:var(--black);border-radius:2px}
+    .hit-badge{background:var(--green);color:#fff;border-color:var(--green);border-radius:2px}
+
+    .mkt-grid{border-top:0;gap:10px;margin-top:12px}
+    .mkt-card{background:var(--paper);border:1px solid var(--rule-soft);border-bottom:1px solid var(--rule-soft);border-radius:3px;padding:10px}
+    .mkt-lbl{color:var(--ink-2);font-weight:800}
+    .pill{background:#fff;border:1px solid var(--rule-soft);border-radius:2px}
+    .pill.hot{background:var(--black);border-color:var(--black);color:#fff}
+    .pill.cool{background:#fff;color:var(--mute)}
+    .pill.value{background:var(--gold-t);border-color:#d9a400;color:var(--ink)}
+
+    .scoreline{background:var(--paper-2);border:0;border-left:5px solid var(--black);padding:8px 12px;border-radius:2px;margin-top:14px}
+    .pred-odds{border-top:2px solid var(--paper-2)}
+    .odd.h,.odd.d,.odd.a{background:var(--paper);padding:1px 7px;border-radius:2px;font-weight:700}
+
+    .sec-title{font:800 1.05rem/1.3 var(--sans);text-transform:uppercase;border-bottom:3px solid var(--pink)}
+    .overlay{background:rgba(11,11,11,.5)}
+    .panel{background:var(--paper);border-left:5px solid var(--pink)}
+    .panel-hdr{border-bottom:3px solid var(--black)}
+    .panel-hdr h2{font:800 1.5rem/1.2 var(--sans)}
+    .odds-table,.news-list{background:#fff;border:1px solid var(--rule-soft);border-radius:3px}
+    .odds-row{padding:0 6px}
+    .odds-row.best{background:var(--gold-t)}
+    .news-item{padding:10px 12px;background:#fff}
+    .news-item:hover{background:var(--paper)}
+    .news-title{font:600 .95rem/1.4 var(--sans)}
+    .src-badge{background:var(--black);color:#fff;border-color:var(--black)}
+
+    .scroll-x,.tbl{background:#fff}
+    .tbl{border:1px solid var(--rule-soft)}
+    .tbl th{background:var(--black);color:#fff;border-bottom:3px solid var(--pink)}
+    .tbl tbody tr:nth-child(even) td{background:#fff6f7}
+    .tbl tr:hover td{background:var(--paper-2)!important}
+    .tbl td.name{font:600 .9rem var(--sans)}
+    .dot{border:0;color:#fff;border-radius:2px}
+    .dot.W{background:var(--green)} .dot.D{background:#8b7d80} .dot.L{background:var(--red)}
+    .tag{border:0;color:#fff!important;padding:0 7px;border-radius:2px}
+    .tag.small{background:#8b7d80} .tag.watch{background:var(--gold-t);color:#3a2600!important} .tag.earn{background:var(--green)} .tag.lose{background:var(--red)}
+
+    .balance{background:var(--black);color:#fff;border:0;border-top:5px solid var(--pink);border-radius:3px;padding:18px 20px}
+    .balance div{color:#f9bac1}
+    .balance strong{color:#fff;font:800 1.2rem/1.25 var(--sans)}
+    .balance .dim,.balance .mute{color:#f9bac1!important}
+    .balance .pos{color:#7be3a0} .balance .neg{color:#ff9a9a}
+    .pill.hot span{color:#ffd35c!important}
+    .pill.hot strong{color:#fff}
+    .chapter{background:#fff;border:1px solid var(--rule-soft);border-radius:3px;padding:0 18px 16px;margin-top:26px;box-shadow:0 2px 6px rgba(120,40,60,.10);overflow:hidden}
+    .chapter h2{background:var(--black);color:#fff;margin:0 -18px 12px;padding:10px 18px;border-bottom:4px solid var(--pink);font:800 1.05rem/1.3 var(--sans);text-transform:uppercase}
+    .chapter h2 .no{color:var(--pink);font:800 .9rem var(--sans)}
+    .chapter .note{font:.88rem/1.5 var(--sans)}
+    .sum{border-top:3px solid var(--black)}
+    details.fold{background:#fff;border:1px solid var(--rule-soft);border-top:4px solid var(--black);border-radius:3px;padding:12px 16px}
+    details.fold>summary{font:800 .95rem var(--sans);text-transform:uppercase}
 
     @media (max-width:560px){
       .main{padding:20px 14px 60px}
