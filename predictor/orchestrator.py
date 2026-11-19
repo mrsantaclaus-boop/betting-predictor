@@ -136,6 +136,7 @@ class BettingOrchestrator:
                 match_label=match_label,
                 simulation_rounds=10,
             )
+            prediction.llm_usage = result.get("usage") or {}   # monitoring only (/api/llm-usage)
             if result["status"] == "success":
                 llm_pred = self.parser.parse(result["report_markdown"])
                 logger.info("LLM prediction parsed (source: %s)", llm_pred.parse_source)
