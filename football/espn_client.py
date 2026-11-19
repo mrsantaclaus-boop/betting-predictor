@@ -96,7 +96,8 @@ def _acc(stats: dict, team: str, scored: int, conceded: int, box: dict,
     if team not in stats:
         stats[team] = {"scored": [], "conceded": [], "shots": [],
                        "shots_ot": [], "shots_against": [], "sot_against": [],
-                       "corners": [], "yellow": [], "red": [], "xg": [], "xga": []}
+                       "corners": [], "yellow": [], "red": [], "xg": [], "xga": [],
+                       "fouls": []}
     s = stats[team]
     opp_box = opp_box or {}
     s["scored"].append(scored)
@@ -108,6 +109,9 @@ def _acc(stats: dict, team: str, scored: int, conceded: int, box: dict,
     s["corners"].append(_safe_float(box.get("wonCorners", box.get("cornerKicks", "0"))))
     s["yellow"].append(_safe_float(box.get("yellowCards", "0")))
     s["red"].append(_safe_float(box.get("redCards", "0")))
+    # fouls only when ESPN reports them: a missing stat must not pull the average to 0
+    if "foulsCommitted" in box:
+        s["fouls"].append(_safe_float(box["foulsCommitted"]))
     # ESPN sometimes exposes xG under these keys
     xg_val = _safe_float(box.get("expectedGoals", box.get("xG", "0")))
     s["xg"].append(xg_val)

@@ -88,6 +88,7 @@ class HeadToHead(BaseModel):
 class InjuryReport(BaseModel):
     """Injury / suspension report for a team."""
     team_name: str
+    source_available: bool = True  # False = no injury/suspension source for this competition
     unavailable: list[str] = []    # Confirmed out
     doubtful: list[str] = []       # Fitness doubts
 
