@@ -17,7 +17,7 @@ Render.com (free)
   │     ├── /api/predict       ← triggers MiroFish simulation
   │     └── /api/standings/*   ← league tables
   └── MiroFish backend (port 5001, internal)
-        └── Groq API (LLM) ← llama-3.3-70b-versatile (free)
+        └── Groq API (LLM) ← gpt-oss-120b / gpt-oss-20b / qwen (free; llama-3.3-70b was retired by Groq in Aug 2026)
 ```
 
 All data has TTL cache (1-hr odds, 90-min news) so API budgets are respected.
@@ -31,7 +31,7 @@ All data has TTL cache (1-hr odds, 90-min news) so API budgets are respected.
 | Render | 750 hrs/month, sleeps after 15min idle | Wakes in ~30s |
 | Groq | Generous free rate limit | ~1 simulation per day |
 | football-data.org | 10 req/min | Cached 6 hrs |
-| The Odds API | 500 req/month | Cached 1 hr |
+| The Odds API | 500 credits/month, tracked at /api/odds/quota (some competitions are switched off to save credits) | Cached 1 hr |
 | NewsAPI | 100 req/day | Cached 90 min |
 | GNews | 100 req/day | Cached 90 min |
 
