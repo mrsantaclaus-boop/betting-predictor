@@ -53,6 +53,7 @@ BASE_URL = "https://api.the-odds-api.com/v4"
 SPORT_KEYS = {
     "SA":    "soccer_italy_serie_a",
     "SB":    "soccer_italy_serie_b",
+    "PD":    "soccer_spain_la_liga",   # disabled by default in odds_quota (credits)
     "CL":    "soccer_uefa_champs_league",
     "EL":    "soccer_uefa_europa_league",
     "ECL":   "soccer_uefa_europa_conference_league",

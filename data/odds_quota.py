@@ -32,7 +32,7 @@ LOW_QUOTA = int(os.getenv("ODDS_LOW_QUOTA", "75"))
 RESET_DAY = int(os.getenv("ODDS_QUOTA_RESET_DAY", "1"))
 DISABLED = frozenset(
     c.strip().upper()
-    for c in os.getenv("ODDS_DISABLED_CODES", "BSA,WCQE,WCQA,WCQC,WCQAS,WCQAF").split(",")
+    for c in os.getenv("ODDS_DISABLED_CODES", "PD,BSA,WCQE,WCQA,WCQC,WCQAS,WCQAF").split(",")
     if c.strip()
 )
 

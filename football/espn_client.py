@@ -48,6 +48,7 @@ ESPN_LEAGUES: dict[str, tuple[str, str]] = {
 ESPN_LOOKUP_SLUGS: dict[str, str] = {
     "SA":  "ita.1",
     "SB":  "ita.2",
+    "PD":  "esp.1",
     "CL":  "uefa.champions",
     "USC": "uefa.super_cup",
 }

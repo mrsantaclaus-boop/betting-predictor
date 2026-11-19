@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.football-data.org/v4"
 COMPETITIONS = {
     "SA":    "Serie A",
-    "SB":    "Serie B",
+    "SB":    "Serie B",   # NOT covered by football-data.org: kept for labels only
+    "PD":    "La Liga",
     "CL":    "Champions League",
     "EL":    "UEFA Europa League",
     "ECL":   "UEFA Conference League",

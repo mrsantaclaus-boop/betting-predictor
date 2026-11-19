@@ -122,3 +122,16 @@ def test_cards_pcts_sum_to_100():
 def test_cards_over_4_5_less_than_over_3_5():
     r = compute_cards_poisson(2.2, 2.2, 0.08, 0.08, "SA")
     assert r.over_4_5_yellow_pct < r.over_3_5_yellow_pct
+
+
+# ── La Liga: constants must reproduce the MEASURED league means ───────────────
+# ESPN, 497 matches (Aug 2025 - Nov 2026): 1.37 goals/team, home 1.58, away 1.16.
+# An average-vs-average match must give those lambdas back (within 3%),
+# otherwise the constants have drifted from the data they were derived from.
+
+def test_laliga_average_match_reproduces_measured_means():
+    avg_team = TeamStats(team_name="Avg", competition="PD",
+                         xg_pg=1.37, xga_pg=1.37, goals_scored_pg=1.37, goals_conceded_pg=1.37)
+    res = compute_poisson(avg_team, avg_team, "PD")
+    assert abs(res.lambda_home - 1.58) / 1.58 < 0.03
+    assert abs(res.lambda_away - 1.16) / 1.16 < 0.03
