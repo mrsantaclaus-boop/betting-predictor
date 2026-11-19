@@ -535,13 +535,15 @@ class BettingOrchestrator:
                     fixture.fixture_id, fixture.home_team, fixture.away_team
                 ),
                 default_factory=lambda: (
-                    InjuryReport(team_name=fixture.home_team),
-                    InjuryReport(team_name=fixture.away_team),
+                    InjuryReport(team_name=fixture.home_team, source_available=False),
+                    InjuryReport(team_name=fixture.away_team, source_available=False),
                 ),
             )
         else:
-            home_injuries = InjuryReport(team_name=fixture.home_team)
-            away_injuries = InjuryReport(team_name=fixture.away_team)
+            # No free source of absences for this competition (checked 2026-11-19: ESPN roster
+            # `injuries` is empty for all 655 Serie A players): say so, do not imply "none".
+            home_injuries = InjuryReport(team_name=fixture.home_team, source_available=False)
+            away_injuries = InjuryReport(team_name=fixture.away_team, source_available=False)
 
         return MatchReport(
             fixture=fixture,
@@ -633,6 +635,7 @@ class BettingOrchestrator:
                 corners_pg=avg(data["corners"]),
                 yellow_cards_pg=avg(data["yellow"]),
                 red_cards_pg=avg(data["red"]),
+                fouls_committed_pg=avg(data.get("fouls", [])),
             )
             result[team] = ts
             logger.info("ESPN %s stats for %s: %d games, %.2f GF, %.2f GA "
@@ -650,7 +653,8 @@ class BettingOrchestrator:
         xG/xGA come from the shots-on-target proxy (predictor/xg_proxy.py).
         """
         if (stats.corners_pg > 0 and stats.yellow_cards_pg > 0
-                and stats.xg_pg > 0 and stats.xga_pg > 0):
+                and stats.xg_pg > 0 and stats.xga_pg > 0
+                and stats.fouls_committed_pg > 0):
             return
         espn_stats = self._get_espn_team_stats(code)
         if not espn_stats:
@@ -673,6 +677,8 @@ class BettingOrchestrator:
             stats.yellow_cards_pg = ets.yellow_cards_pg
         if stats.red_cards_pg == 0 and ets.red_cards_pg > 0:
             stats.red_cards_pg = ets.red_cards_pg
+        if stats.fouls_committed_pg == 0 and ets.fouls_committed_pg > 0:
+            stats.fouls_committed_pg = ets.fouls_committed_pg
         if stats.games_played == 0:
             stats.games_played = ets.games_played
         logger.info("ESPN fallback for %s (%s): %d games, xG=%.2f xGA=%.2f corners=%.2f yellow=%.2f",

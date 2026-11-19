@@ -195,6 +195,8 @@ class SeedGenerator:
         )
 
         inj_lines = []
+        if not getattr(injuries, "source_available", True):
+            inj_lines.append("  - Not available (no free injury or suspension data source for this competition)")
         if injuries.unavailable:
             inj_lines.append(f"  - **Out:** {', '.join(injuries.unavailable)}")
         if injuries.doubtful:
@@ -202,6 +204,7 @@ class SeedGenerator:
         inj_section = "\n".join(inj_lines) if inj_lines else "  - No confirmed absences"
 
         btts_pct = f"{stats.btts_rate * 100:.0f}%" if stats.btts_rate else "N/A"
+        fouls_str = f"{stats.fouls_committed_pg}" if stats.fouls_committed_pg > 0 else "N/A"
         cs_pct = f"{stats.clean_sheet_rate * 100:.0f}%" if stats.clean_sheet_rate else "N/A"
 
         return (
@@ -224,7 +227,7 @@ class SeedGenerator:
             f"| Corners | **{stats.corners_pg}** |\n"
             f"| Yellow cards | **{stats.yellow_cards_pg}** |\n"
             f"| Red cards | **{stats.red_cards_pg}** |\n"
-            f"| Fouls committed | **{stats.fouls_committed_pg}** |\n"
+            f"| Fouls committed | **{fouls_str}** |\n"
             f"| Clean sheet rate | **{cs_pct}** |\n"
             f"| BTTS rate | **{btts_pct}** |\n\n"
             f"### Injury & Suspension Report\n{inj_section}\n"
