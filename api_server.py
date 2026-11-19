@@ -804,6 +804,14 @@ def standings(competition_code: str):
     def fetch():
         client = get_af() if competition_code in _AF_CODES else get_fd()
         rows = client.get_standings(competition_code)
+        # football-data.org's free tier leaves `form` empty: derive it from results.
+        if rows and not any(r.form for r in rows) and hasattr(client, "get_standings_form"):
+            try:
+                forms = client.get_standings_form(competition_code)
+                for r in rows:
+                    r.form = forms.get(r.team_id, "")
+            except Exception as e:
+                logger.warning("standings form unavailable for %s: %s", competition_code, e)
         return [r.model_dump() for r in rows]
 
     try:
