@@ -56,6 +56,30 @@ _TERMINAL_STATUSES = {
 }
 
 
+def compute_form_from_matches(matches: list[dict], n: int = 5) -> dict[int, str]:
+    """{team_id: "W,D,L,..."} for the last `n` finished matches of each team.
+
+    football-data.org's free tier returns an empty `form` in the standings, so
+    the site derives it from finished results. Order: oldest first, most recent
+    LAST (rightmost). Matches without a full-time score are ignored; a team
+    with no finished match gets no entry (never a made-up form).
+    """
+    done = [m for m in matches
+            if m.get("status") == "FINISHED"
+            and m.get("score", {}).get("fullTime", {}).get("home") is not None
+            and m.get("score", {}).get("fullTime", {}).get("away") is not None]
+    done.sort(key=lambda m: m.get("utcDate", ""))
+    seq: dict[int, list[str]] = {}
+    for m in done:
+        hs = m["score"]["fullTime"]["home"]
+        as_ = m["score"]["fullTime"]["away"]
+        res_home = "W" if hs > as_ else "L" if hs < as_ else "D"
+        res_away = {"W": "L", "L": "W", "D": "D"}[res_home]
+        seq.setdefault(m["homeTeam"]["id"], []).append(res_home)
+        seq.setdefault(m["awayTeam"]["id"], []).append(res_away)
+    return {tid: ",".join(r[-n:]) for tid, r in seq.items()}
+
+
 class FootballDataClient:
     """Thin wrapper around the football-data.org v4 API."""
 
@@ -225,6 +249,12 @@ class FootballDataClient:
                 except KeyError:
                     continue
         return standings
+
+    def get_standings_form(self, competition_code: str, n: int = 5) -> dict[int, str]:
+        """Last-`n` form per team id, derived from finished matches (one request)."""
+        data = self._get(f"competitions/{competition_code}/matches",
+                         params={"status": "FINISHED"})
+        return compute_form_from_matches(data.get("matches", []), n)
 
     def get_competition_teams(self, competition_code: str) -> dict[str, int]:
         """Return {team_name: team_id} for all teams registered in a competition."""
