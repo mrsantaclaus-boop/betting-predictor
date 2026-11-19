@@ -27,7 +27,10 @@ _ALIASES = {
 # Words that identify one club so strongly that their presence on one side
 # and absence on the other rules the match out, even if other words overlap
 # (the Milan derby: "Inter Milan" vs "AC Milan" share "milan").
-_EXCLUSIVE = {"inter"}
+# La Liga: "Deportivo Alaves" shares the generic word "deportivo" with
+# "Deportivo La Coruna", and "RCD Espanyol de Barcelona" shares "barcelona" with
+# "FC Barcelona" (found 2026-11-19 checking football-data.org vs ESPN names).
+_EXCLUSIVE = {"inter", "espanyol", "alav"}
 
 
 def keywords(name: str) -> set[str]:
