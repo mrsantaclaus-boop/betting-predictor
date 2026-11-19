@@ -792,7 +792,7 @@ def fixtures():
         return jsonify({"error": str(e)}), 500
 
 
-_ALL_COMP_CODES = {"SA", "SB", "CL", "EL", "ECL", "USC", "WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF", "BSA"}
+_ALL_COMP_CODES = {"SA", "PD", "SB", "CL", "EL", "ECL", "USC", "WC", "WCQE", "WCQA", "WCQC", "WCQAS", "WCQAF", "BSA"}
 
 
 @app.route("/api/standings/<competition_code>")
@@ -1015,7 +1015,7 @@ _ESPN_SYNC_CODES: frozenset[str] = frozenset({"EL", "ECL", "BSA", "WC", "WCQA", 
 
 # Older records stored only the competition name; map it back to a code.
 _COMP_NAME_TO_CODE: dict[str, str] = {
-    "Serie A": "SA", "Serie B": "SB", "Champions League": "CL",
+    "Serie A": "SA", "Serie B": "SB", "La Liga": "PD", "Champions League": "CL",
     "UEFA Europa League": "EL", "UEFA Conference League": "ECL",
     "UEFA Super Cup": "USC", "FIFA World Cup": "WC",
     "WCQ Europe": "WCQE", "WCQ Americas": "WCQA", "WCQ CONCACAF": "WCQC",
@@ -1371,7 +1371,7 @@ def edge_stats():
 
     # comp_code from stored field; fall back to name→code mapping for older records
     _NAME_TO_CODE = {
-        "Serie A": "SA", "Serie B": "SB", "Champions League": "CL",
+        "Serie A": "SA", "Serie B": "SB", "La Liga": "PD", "Champions League": "CL",
         "UEFA Europa League": "EL", "UEFA Conference League": "ECL",
         "UEFA Super Cup": "USC", "FIFA World Cup": "WC",
         "WCQ Europe": "WCQE", "WCQ Americas": "WCQA", "WCQ CONCACAF": "WCQC",
@@ -1627,7 +1627,7 @@ def prediction_history():
     resolved = _load_resolved_preds_full()
 
     _NAME_TO_CODE = {
-        "Serie A": "SA", "Serie B": "SB", "Champions League": "CL",
+        "Serie A": "SA", "Serie B": "SB", "La Liga": "PD", "Champions League": "CL",
         "UEFA Europa League": "EL", "UEFA Conference League": "ECL",
         "UEFA Super Cup": "USC", "FIFA World Cup": "WC",
         "WCQ Europe": "WCQE", "WCQ Americas": "WCQA", "WCQ CONCACAF": "WCQC",
@@ -1753,7 +1753,7 @@ def model_calibration():
     from collections import defaultdict as _dd2
 
     _NAME_TO_CODE2 = {
-        "Serie A": "SA", "Serie B": "SB", "Champions League": "CL",
+        "Serie A": "SA", "Serie B": "SB", "La Liga": "PD", "Champions League": "CL",
         "UEFA Conference League": "ECL", "FIFA World Cup": "WC",
         "WCQ Europe": "WCQE", "WCQ Americas": "WCQA", "WCQ CONCACAF": "WCQC",
         "WCQ Asia": "WCQAS", "WCQ Africa": "WCQAF", "Brasileirao Serie A": "BSA",

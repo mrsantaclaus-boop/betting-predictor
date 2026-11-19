@@ -36,6 +36,8 @@ LEAGUE_AVERAGES: dict[str, dict[str, float]] = {
               "xga_pg": 1.35, "corners_pg": 5.1, "yellow_cards_pg": 2.2, "red_cards_pg": 0.08},
     "SB":    {"goals_scored_pg": 1.25, "goals_conceded_pg": 1.25, "xg_pg": 1.25,
               "xga_pg": 1.25, "corners_pg": 5.1, "yellow_cards_pg": 2.4, "red_cards_pg": 0.09},
+    "PD":    {"goals_scored_pg": 1.37, "goals_conceded_pg": 1.37, "xg_pg": 1.37,
+              "xga_pg": 1.37, "corners_pg": 4.87, "yellow_cards_pg": 2.15, "red_cards_pg": 0.14},  # MEASURED, ESPN 497 matches
     "CL":    {"goals_scored_pg": 1.40, "goals_conceded_pg": 1.40, "xg_pg": 1.40,
               "xga_pg": 1.40, "corners_pg": 4.8, "yellow_cards_pg": 1.8, "red_cards_pg": 0.06},
     "EL":    {"goals_scored_pg": 1.38, "goals_conceded_pg": 1.38, "xg_pg": 1.38,

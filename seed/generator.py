@@ -124,6 +124,11 @@ class SeedGenerator:
                 "It is a single match with no away goals or second legs — the winner is decided "
                 "on the day, with extra time and penalties if necessary."
             )
+        elif f.competition_code == "PD":
+            comp_desc = (
+                "**La Liga** is the top professional football league in Spain, featuring 20 clubs. "
+                "The bottom 3 are relegated to Segunda Division."
+            )
         elif f.competition_code == "SB":
             comp_desc = (
                 "**Serie B** is Italy's second professional football league, featuring 20 clubs "
@@ -264,13 +269,13 @@ class SeedGenerator:
         f = report.fixture
 
         LEAGUE_CORNERS_PG = {
-            "SA": 5.1, "SB": 5.1, "CL": 4.8, "EL": 4.9, "ECL": 4.6,
+            "SA": 5.1, "PD": 4.87, "SB": 5.1, "CL": 4.8, "EL": 4.9, "ECL": 4.6,
             "USC": 5.2, "WC": 4.4, "WCQE": 4.5, "WCQA": 4.3,
             "WCQC": 4.2, "WCQAS": 4.2, "WCQAF": 4.0,
             "BSA": 5.5,
         }
         LEAGUE_CARDS_PG = {
-            "SA": 2.2, "SB": 2.4, "CL": 1.8, "EL": 1.9, "ECL": 2.0,
+            "SA": 2.2, "PD": 2.15, "SB": 2.4, "CL": 1.8, "EL": 1.9, "ECL": 2.0,
             "USC": 1.7, "WC": 2.0, "WCQE": 2.3, "WCQA": 2.4,
             "WCQC": 2.3, "WCQAS": 2.2, "WCQAF": 2.5,
             "BSA": 2.3,

@@ -27,6 +27,9 @@ from football.models import TeamStats, HeadToHead
 LEAGUE_AVG_XG: dict[str, float] = {
     "SA":    1.40,
     "SB":    1.25,  # Serie B: slightly lower scoring than Serie A
+    "PD":    1.62,  # La Liga MEASURED (ESPN, 497 matches Aug 2025-Nov 2026): 1.37 goals/team,
+                    # home 1.58 / away 1.16. avg = mean^2/away so an average-vs-average match
+                    # reproduces the real means (see test_laliga_average_match).
     "CL":    1.40,
     "EL":    1.38,  # Europa League: slightly below CL quality
     "ECL":   1.30,
@@ -52,6 +55,7 @@ _DEFAULT_AVG_XG = 1.30
 HOME_ADVANTAGE: dict[str, float] = {
     "SA":    1.08,   # Serie A: strong crowd factor
     "SB":    1.11,   # Serie B: similar to Serie A but slightly lower stakes
+    "PD":    1.37,   # La Liga MEASURED home/away goal ratio 1.369 (497 matches, +-0.11)
     "CL":    1.06,   # CL: competitive away sides, historically flatter
     "EL":    1.07,   # Europa League: similar to CL
     "ECL":   1.10,
@@ -361,6 +365,7 @@ def compute_poisson(
 LEAGUE_AVG_CORNERS: dict[str, float] = {
     "SA":    10.5,
     "SB":    10.2,
+    "PD":     9.7,   # La Liga MEASURED: 9.74 corners/game (ESPN, 497 matches)
     "CL":    10.0,
     "EL":     9.8,
     "ECL":    9.5,
@@ -423,6 +428,7 @@ def compute_corner_poisson(
 LEAGUE_AVG_CARDS: dict[str, dict[str, float]] = {
     "SA":    {"yellow": 4.4, "red": 0.16},
     "SB":    {"yellow": 4.8, "red": 0.18},  # Serie B: more physical
+    "PD":    {"yellow": 4.3, "red": 0.28},  # La Liga MEASURED (ESPN, 497 matches)
     "CL":    {"yellow": 3.6, "red": 0.12},
     "EL":    {"yellow": 3.8, "red": 0.13},
     "ECL":   {"yellow": 4.0, "red": 0.14},
