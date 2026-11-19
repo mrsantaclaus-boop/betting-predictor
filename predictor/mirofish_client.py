@@ -53,6 +53,34 @@ SWARM_MIN_THESES = int(os.getenv("SWARM_MIN_THESES", "3"))
 _PERSONA_PAUSE_S = 0.5
 
 
+def new_usage() -> dict:
+    """Empty call/token counters for ONE prediction. Monitoring only: nothing reads them back."""
+    return {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+            "rate_limited": 0, "errors": 0, "by_model": {}}
+
+
+def _add_usage(usage, model: str, *, tokens=None, rate_limited: bool = False, error: bool = False) -> None:
+    """Record one HTTP outcome in `usage` (no-op when None). A response without a `usage` field is tolerated."""
+    if usage is None:
+        return
+    per_model = usage["by_model"].setdefault(model, {"calls": 0, "total_tokens": 0})
+    if rate_limited:
+        usage["rate_limited"] += 1
+        return
+    if error:
+        usage["errors"] += 1
+        return
+    t = tokens if isinstance(tokens, dict) else {}
+    prompt, completion = int(_num(t.get("prompt_tokens"))), int(_num(t.get("completion_tokens")))
+    total = int(_num(t.get("total_tokens"))) or (prompt + completion)
+    usage["calls"] += 1
+    usage["prompt_tokens"] += prompt
+    usage["completion_tokens"] += completion
+    usage["total_tokens"] += total
+    per_model["calls"] += 1
+    per_model["total_tokens"] += total
+
+
 def build_request_payload(model: str, messages: list[dict],
                           temperature: float = 0.3, max_tokens: int = 4096) -> dict:
     """
@@ -211,17 +239,19 @@ class MiroFishClient:
         if not self.api_key:
             return {"status": "error", "error": "LLM_API_KEY not configured"}
 
+        usage = new_usage()
         if self.swarm_enabled:
             try:
-                panel = self._analyst_round(seed_text, match_label)
+                panel = self._analyst_round(seed_text, match_label, usage=usage)
             except Exception as e:  # never let the swarm kill a prediction
                 logger.warning("[SWARM] analyst round failed: %s", e)
                 panel = []
             if len(panel) >= SWARM_MIN_THESES:
-                result = self._judge(seed_text, prediction_prompt, match_label, panel)
+                result = self._judge(seed_text, prediction_prompt, match_label, panel, usage=usage)
                 if result["status"] == "success":
                     result["mode"] = "swarm"
                     result["panel"] = panel
+                    result["usage"] = usage
                     return result
                 logger.warning("[SWARM] judge failed (%s) — falling back to single analyst",
                                result.get("error"))
@@ -229,7 +259,8 @@ class MiroFishClient:
                 logger.warning("[SWARM] only %d/%d theses — falling back to single analyst",
                                len(panel), len(PERSONAS))
 
-        result = self._single_analyst(seed_text, prediction_prompt, match_label)
+        result = self._single_analyst(seed_text, prediction_prompt, match_label, usage=usage)
+        result["usage"] = usage
         result["mode"] = "single"
         result["panel"] = []
         return result
@@ -240,7 +271,7 @@ class MiroFishClient:
 
     # ── Swarm ─────────────────────────────────────────────────────────────
 
-    def _analyst_round(self, seed_text: str, match_label: str) -> list[dict]:
+    def _analyst_round(self, seed_text: str, match_label: str, usage: Optional[dict] = None) -> list[dict]:
         home, away, competition = _split_label(match_label)
         dossier = _strip_simulation_instructions(seed_text)
         panel: list[dict] = []
@@ -252,7 +283,7 @@ class MiroFishClient:
                       f"{home} vs {away} ({competition}). {instructions} {_PERSONA_FORMAT}")
             user = f"{dossier}\n\nGive your thesis now."
             try:
-                content = self._chat(model, system, user, temperature=0.7, max_tokens=900)
+                content = self._chat(model, system, user, temperature=0.7, max_tokens=900, usage=usage)
             except Exception as e:
                 logger.warning("[SWARM] %s (%s) failed: %s", role, model, e)
                 continue
@@ -282,7 +313,7 @@ class MiroFishClient:
         return panel
 
     def _judge(self, seed_text: str, prediction_prompt: str, match_label: str,
-               panel: list[dict]) -> dict:
+               panel: list[dict], usage: Optional[dict] = None) -> dict:
         theses = "\n".join(
             f"- **{t['label']}** ({t['model']}): verdict {t['verdict']}, "
             f"1X2 {t['home_win_pct']}/{t['draw_pct']}/{t['away_win_pct']}, "
@@ -307,7 +338,7 @@ class MiroFishClient:
         try:
             logger.info("[SWARM] judge (%s) for: %s", self.model, match_label)
             report_md = self._chat(self.model, _SYSTEM_PROMPT, user_message,
-                                   temperature=0.3, max_tokens=4096)
+                                   temperature=0.3, max_tokens=4096, usage=usage)
             logger.info("[SWARM] judge report complete (%d chars)", len(report_md))
             return {"status": "success", "simulation_id": None, "report_id": None,
                     "report_markdown": report_md}
@@ -316,7 +347,8 @@ class MiroFishClient:
 
     # ── Single analyst (legacy path / fallback) ───────────────────────────
 
-    def _single_analyst(self, seed_text: str, prediction_prompt: str, match_label: str) -> dict:
+    def _single_analyst(self, seed_text: str, prediction_prompt: str, match_label: str,
+                        usage: Optional[dict] = None) -> dict:
         user_message = (
             f"{seed_text}\n\n"
             f"---\n\n"
@@ -331,7 +363,7 @@ class MiroFishClient:
         try:
             logger.info("[LLM] Requesting prediction for: %s", match_label)
             report_md = self._chat(self.model, _SYSTEM_PROMPT, user_message,
-                                   temperature=0.3, max_tokens=4096)
+                                   temperature=0.3, max_tokens=4096, usage=usage)
             logger.info("[LLM] Prediction complete (%d chars)", len(report_md))
             return {"status": "success", "simulation_id": None, "report_id": None,
                     "report_markdown": report_md}
@@ -343,7 +375,8 @@ class MiroFishClient:
     # ── Transport ─────────────────────────────────────────────────────────
 
     def _chat(self, model: str, system: str, user: str,
-              temperature: float, max_tokens: int, retries: int = 2) -> str:
+              temperature: float, max_tokens: int, retries: int = 2,
+              usage: Optional[dict] = None) -> str:
         """One chat completion; honours Groq 429 retry-after. Raises on failure."""
         payload = build_request_payload(model, [
             {"role": "system", "content": system},
@@ -356,14 +389,17 @@ class MiroFishClient:
                                      headers=headers, json=payload, timeout=120)
             if response.status_code == 429 and attempt < retries:
                 wait = _retry_after_seconds(response)
+                _add_usage(usage, model, rate_limited=True)
                 logger.warning("[LLM] 429 from %s — waiting %.0fs", model, wait)
                 time.sleep(wait)
                 attempt += 1
                 continue
             if not response.ok:
+                _add_usage(usage, model, error=True)
                 raise SimulationError(
                     f"LLM API error {response.status_code} ({model}): {response.text[:200]}")
             data = response.json()
+            _add_usage(usage, model, tokens=(data.get("usage") if isinstance(data, dict) else None))
             try:
                 return data["choices"][0]["message"]["content"] or ""
             except (KeyError, IndexError, TypeError) as e:

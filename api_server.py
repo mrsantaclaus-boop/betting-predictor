@@ -1548,6 +1548,69 @@ def shadow_report():
     return jsonify(_shadow_report(_load_resolved_preds_full()))
 
 
+def _llm_usage_report(preds: list[dict], days: int = 7, now=None, daily_budget=None) -> dict:
+    """
+    LLM calls and tokens per UTC day, summed from the `llm_usage` stored with each prediction.
+    Monitoring only. Lower bound: counts this app's stored predictions (a re-run replaces the
+    earlier record) and not other uses of the same Groq key; the Groq console is the authority.
+    """
+    now = now or datetime.now(timezone.utc)
+    first_day = (now - timedelta(days=days - 1)).date().isoformat()
+    today = now.date().isoformat()
+
+    def blank():
+        return {"predictions": 0, "with_usage": 0, "calls": 0, "prompt_tokens": 0,
+                "completion_tokens": 0, "total_tokens": 0, "rate_limited": 0, "errors": 0, "by_model": {}}
+
+    by_day: dict[str, dict] = {}
+    for p in preds:
+        day = (p.get("created_at") or "")[:10]
+        if not day or day < first_day:
+            continue
+        row = by_day.setdefault(day, blank())
+        row["predictions"] += 1
+        u = p.get("llm_usage") or {}
+        if not u:
+            continue
+        row["with_usage"] += 1
+        for k in ("calls", "prompt_tokens", "completion_tokens", "total_tokens", "rate_limited", "errors"):
+            row[k] += int(u.get(k) or 0)
+        for model, m in (u.get("by_model") or {}).items():
+            agg = row["by_model"].setdefault(model, {"calls": 0, "total_tokens": 0})
+            agg["calls"] += int(m.get("calls") or 0)
+            agg["total_tokens"] += int(m.get("total_tokens") or 0)
+
+    today_row = by_day.get(today) or blank()
+    pct = round(100.0 * today_row["total_tokens"] / daily_budget, 1) if daily_budget else None
+    return {
+        "today": {"day": today, **today_row},
+        "today_pct_of_daily_budget": pct,
+        "daily_budget_tokens": daily_budget,
+        "days": [{"day": d, **by_day[d]} for d in sorted(by_day, reverse=True)],
+        "note": "Lower bound: only this app's stored predictions; the Groq console is the authority. "
+                "Set LLM_DAILY_TOKEN_BUDGET (from the Groq Limits page) to get the percentage.",
+    }
+
+
+@app.route("/api/llm-usage")
+def llm_usage():
+    """LLM calls/tokens per day (read-only, no secrets). Watched by Fedor."""
+    try:
+        days = max(1, min(int(request.args.get("days", 7)), 30))
+    except ValueError:
+        days = 7
+    try:
+        budget = int(os.getenv("LLM_DAILY_TOKEN_BUDGET", "0") or 0) or None
+    except ValueError:
+        budget = None
+    data = _cache.get_or_fetch(
+        f"llm-usage:{days}:{budget}",
+        lambda: _llm_usage_report(_load_preds(1000), days, daily_budget=budget),
+        10,
+    )
+    return jsonify(data)
+
+
 @app.route("/api/ledger")
 def ledger():
     """
